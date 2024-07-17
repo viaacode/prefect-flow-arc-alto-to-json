@@ -41,7 +41,7 @@ def run_node_script(url):
     try:
         # Run the Node.js script using subprocess
         result = subprocess.run(
-            ["node", "processFile.js", url], capture_output=True, text=True
+            ["node", "../script/extract-text-lines-from-alto.js", url], capture_output=True, text=True
         )
         if result.returncode != 0:
             raise Exception(f"Error running script for {url}: {result.stderr}")
@@ -58,6 +58,8 @@ def upload_to_s3(
     s3_bucket_name: str, 
     s3_credentials: AwsCredentials):
 
+    logger = get_run_logger()
+
     file_name = os.path.basename(content[0])
     s3_key = f"{file_name}.json"
     s3_upload(
@@ -66,7 +68,7 @@ def upload_to_s3(
         data=content[1],
         aws_credentials=s3_credentials,
     )
-    print(f"Uploaded {file_name} to s3://{s3_bucket_name}/{s3_key}")
+    logger.info(f"Uploaded {file_name} to s3://{s3_bucket_name}/{s3_key}")
 
 
 @flow(name="prefect_flow_arc_alto_to_json", task_runner=ConcurrentTaskRunner(),  on_completion=[save_last_run_config])
