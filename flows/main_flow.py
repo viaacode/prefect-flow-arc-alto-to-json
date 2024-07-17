@@ -1,5 +1,4 @@
 from prefect import flow, task, get_run_logger
-from datetime import datetime
 from prefect.runners import ConcurrentTaskRunner
 import subprocess
 import requests
@@ -106,8 +105,8 @@ def upload_to_s3(
     on_completion=[save_last_run_config],
 )
 def main_flow(
-    s3_bucket_name: str = "your-bucket-name",
-    s3_block_name: str = "",
+    s3_bucket_name: str = "bucket",
+    s3_block_name: str = "object-store",
     triplydb_block_name: str = "triplydb",
     sparql_endpoint: str = "https://api.meemoo-int.triply.cc/datasets/meemoo/knowledge-graph/services/knowledge-graph/sparql",
     full_sync: bool = False,
