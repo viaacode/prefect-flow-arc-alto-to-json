@@ -27,6 +27,14 @@ def get_url_list(
         """
 
     sparql_query = f"""
+    PREFIX premis: <http://www.loc.gov/premis/rdf/v3/>
+    PREFIX schema: <https://schema.org/>
+    PREFIX haObj: <https://data.hetarchief.be/ns/object/> 
+    PREFIX rel: <http://id.loc.gov/vocabulary/preservation/relationshipSubType/> 
+    PREFIX ebucore: <http://www.ebu.ch/metadata/ontologies/ebucore/ebucore#> 
+    prefix prov: <http://www.w3.org/ns/prov#>
+    prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
     SELECT DISTINCT ?alto_url
     WHERE {{
         ?id a premis:File;
