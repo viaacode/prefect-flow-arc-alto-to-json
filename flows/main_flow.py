@@ -1,4 +1,4 @@
-from prefect import flow, task, get_run_logger
+from prefect import flow, task, get_run_logger, unmapped
 from prefect.task_runners import ConcurrentTaskRunner
 import subprocess
 import os
@@ -153,8 +153,8 @@ def main_flow(
         since=last_modified_date if not full_sync else None,
     )
     outputs = run_node_script.map(url_list)
-    upload_results = upload_to_s3.map(outputs, s3_credentials=s3_creds, s3_bucket_name=s3_bucket_name)
-    insert_transcripts = insert_schema_transcript.map(upload_results, postgres_credentials=postgres_creds)
+    upload_results = upload_to_s3.map(outputs, unmapped(s3_creds), s3_bucket_name)
+    insert_transcripts = insert_schema_transcript.map(upload_results, unmapped(postgres_creds))
     return insert_transcripts
 
 
