@@ -21,8 +21,8 @@ def get_url_list(
     sql_query = """
     SELECT representation_id, premis_stored_at
     FROM graph.file f
-    JOIN graph.includes i ON i.file_id = f.file_id
-    WHERE ebucore_has_mime_type = "application/xml" AND schema_name LIKE "%alto%"
+    JOIN graph.includes i ON i.file_id = f.id
+    WHERE f.ebucore_has_mime_type = 'application/xml' AND schema_name LIKE '%alto%'
     """
 
     if since is not None:
