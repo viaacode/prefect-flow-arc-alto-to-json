@@ -1,5 +1,5 @@
 from prefect import flow, task, get_run_logger
-from prefect.runners import ConcurrentTaskRunner
+from prefect.task_runners import ConcurrentTaskRunner
 import subprocess
 import os
 import psycopg2
