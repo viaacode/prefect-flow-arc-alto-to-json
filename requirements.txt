@@ -1,3 +1,3 @@
 prefect
-prefect-aws
+prefect-aws==0.4.12
 pydantic==1.10.8
