@@ -67,7 +67,9 @@ def run_node_script(content: tuple[str, str]):
 # Task to upload the JSON output to S3
 @task()
 def upload_to_s3(
-    content: tuple[str, str, str], s3_bucket_name: str, s3_credentials: AwsCredentials
+    content: tuple[str, str, str], 
+    s3_credentials: AwsCredentials,
+    s3_bucket_name: str
 ):
     logger = get_run_logger()
     representation_id, url, json_string = content
@@ -151,8 +153,8 @@ def main_flow(
         since=last_modified_date if not full_sync else None,
     )
     outputs = run_node_script.map(url_list)
-    upload_results = upload_to_s3.map(outputs, s3_creds, s3_bucket_name)
-    insert_transcripts = insert_schema_transcript.map(upload_results, postgres_creds)
+    upload_results = upload_to_s3.map(outputs, s3_credentials=s3_creds, s3_bucket_name=s3_bucket_name)
+    insert_transcripts = insert_schema_transcript.map(upload_results, postgres_credentials=postgres_creds)
     return insert_transcripts
 
 
