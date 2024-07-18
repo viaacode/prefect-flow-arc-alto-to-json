@@ -44,7 +44,7 @@ def get_url_list(
 
 
 # Task to run the Node.js script and capture stdout as JSON
-@task()
+@task(task_run_name="create-json-from-{content[1]}")
 def run_node_script(content: tuple[str, str]):
     logger = get_run_logger()
     representation_id, url = content
@@ -65,7 +65,7 @@ def run_node_script(content: tuple[str, str]):
 
 
 # Task to upload the JSON output to S3
-@task()
+@task(task_run_name="upload-{content[1]}-to-s3")
 def upload_to_s3(
     content: tuple[str, str, str], 
     s3_credentials: AwsCredentials,
@@ -148,14 +148,17 @@ def main_flow(
     if not full_sync:
         last_modified_date = get_last_run_config("%Y-%m-%d")
 
+    results = []
     url_list = get_url_list(
         postgres_creds,
         since=last_modified_date if not full_sync else None,
     )
-    outputs = run_node_script.map(url_list)
-    upload_results = upload_to_s3.map(outputs, unmapped(s3_creds), s3_bucket_name)
-    insert_transcripts = insert_schema_transcript.map(upload_results, unmapped(postgres_creds))
-    return insert_transcripts
+    for output in run_node_script.map(url_list):
+        upload = upload_to_s3.submit(output.result(), s3_creds, s3_bucket_name)
+        insert_transcript = insert_schema_transcript.submit(upload.result(), postgres_creds)
+        results.append(insert_transcript.result())
+    
+    return results
 
 
 if __name__ == "__main__":
