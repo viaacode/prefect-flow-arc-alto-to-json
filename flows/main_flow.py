@@ -52,7 +52,7 @@ def run_node_script(content: tuple[str, str]):
     try:
         # Run the Node.js script using subprocess
         result = subprocess.run(
-            ["node", "../script/extract-text-lines-from-alto.js", url],
+            ["node", "script/extract-text-lines-from-alto.js", url],
             capture_output=True,
             text=True,
         )
