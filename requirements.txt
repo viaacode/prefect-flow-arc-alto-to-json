@@ -1,2 +1,3 @@
-# prefect
+prefect
 prefect-aws
+pydantic==1.10.8
