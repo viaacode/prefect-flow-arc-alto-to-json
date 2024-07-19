@@ -147,7 +147,7 @@ def main_flow(
         )
         result = insert_schema_transcript.submit(
             representation_id=representation_id,
-            s3_url=f"{s3_domain}/{s3_bucket_name}/{s3_key.result()}",
+            s3_url=f"{s3_endpoint}/{s3_bucket_name}/{s3_key.result()}",
             transcript=transcript.result(),
             postgres_credentials=postgres_creds
         )
