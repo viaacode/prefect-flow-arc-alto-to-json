@@ -1,4 +1,4 @@
-from prefect import flow, task, get_run_logger, unmapped
+from prefect import flow, task, get_run_logger
 from prefect.task_runners import ConcurrentTaskRunner
 import subprocess
 import os
@@ -45,10 +45,9 @@ def get_url_list(
 
 # Task to run the Node.js script and capture stdout as JSON
 @task(task_run_name="create-json-from-{content[1]}")
-def run_node_script(content: tuple[str, str]):
+def run_node_script(url: str):
     logger = get_run_logger()
-    representation_id, url = content
-    
+
     try:
         # Run the Node.js script using subprocess
         result = subprocess.run(
@@ -58,7 +57,7 @@ def run_node_script(content: tuple[str, str]):
         )
         if result.returncode != 0:
             raise Exception(f"Error running script for {url}: {result.stderr}")
-        return representation_id, url, result.stdout
+        return result.stdout
     except Exception as e:
         logger.error(f"Failed to process {url}: {str(e)}")
         raise e
@@ -67,14 +66,14 @@ def run_node_script(content: tuple[str, str]):
 # Task to upload the JSON output to S3
 @task(task_run_name="upload-{content[1]}-to-s3")
 def upload_to_s3(
-    content: tuple[str, str, str], 
+    xml_url: str,
+    json_string: str,
     s3_credentials: AwsCredentials,
-    s3_bucket_name: str
+    s3_bucket_name: str,
 ):
     logger = get_run_logger()
-    representation_id, url, json_string = content
 
-    file_name = os.path.basename(url)
+    file_name = os.path.basename(xml_url)
     s3_key = f"{file_name}.json"
     key = s3_upload(
         bucket=s3_bucket_name,
@@ -84,21 +83,22 @@ def upload_to_s3(
     )
     s3_url = f"s3://{s3_bucket_name}/{s3_key}"
     logger.info(f"Uploaded {file_name} to {s3_url}")
-    return representation_id, s3_url, json_string
+    return s3_url
 
 
 @task()
 def insert_schema_transcript(
-    content: tuple[str, str],
+    representation_id: str,
+    s3_url: str,
+    json_string: str,
     postgres_credentials: DatabaseCredentials,
 ):
     logger = get_run_logger()
 
-    representation_id, url, json_string = content
-
     # process JSON
     parsed_json = json.loads(json_string)
-    concatenated_text = "".join(item["text"] for item in parsed_json["text"])
+    # get the full text
+    concatenated_text = " ".join(item["text"] for item in parsed_json["text"])
 
     # connect to database
     conn = psycopg2.connect(
@@ -120,7 +120,7 @@ def insert_schema_transcript(
     logger.info("Inserting schema_transcript_url into 'graph.schema_transcript_url'")
     cur.execute(
         "INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url) VALUES (%s, %s)",
-        (representation_id, url),
+        (representation_id, s3_url),
     )
     conn.commit()
 
@@ -149,15 +149,21 @@ def main_flow(
         last_modified_date = get_last_run_config("%Y-%m-%d")
 
     results = []
-    url_list = get_url_list(
+    url_list = get_url_list.submit(
         postgres_creds,
         since=last_modified_date if not full_sync else None,
-    )
-    for output in run_node_script.map(url_list):
-        upload = upload_to_s3.submit(output.result(), s3_creds, s3_bucket_name)
-        insert_transcript = insert_schema_transcript.submit(upload.result(), postgres_creds)
-        results.append(insert_transcript.result())
-    
+    ).result()
+    for representation_id, url in url_list:
+        json_string = run_node_script.submit(url=url).result()
+        s3_url = upload_to_s3.submit(xml_url=url, json_string=json_string, s3_credentials=s3_creds, s3_bucket_name=s3_bucket_name).result()
+        result = insert_schema_transcript.submit(
+            representation_id=representation_id,
+            s3_url=s3_url,
+            json_string=json_string,
+            postgres_credentials=postgres_creds
+        ).result()
+        results.append(result)
+
     return results
 
 
