@@ -63,9 +63,9 @@ def run_node_script(url: str):
         logger.error(f"Failed to process {url}: {str(e)}")
         raise e
 @task()
-def extract_transcript(json_string: PrefectFuture):
+def extract_transcript(json_string: str):
     # process JSON
-    parsed_json = json.loads(json_string.result())
+    parsed_json = json.loads(json_string)
     # get the full text
     return " ".join(item["text"] for item in parsed_json["text"])
 
@@ -73,8 +73,8 @@ def extract_transcript(json_string: PrefectFuture):
 @task(task_run_name="insert-{s3_url}-in-database")
 def insert_schema_transcript(
     representation_id: str,
-    s3_url: PrefectFuture,
-    transcript: PrefectFuture,
+    s3_url: str,
+    transcript: str,
     postgres_credentials: DatabaseCredentials,
 ):
     logger = get_run_logger()
@@ -93,13 +93,13 @@ def insert_schema_transcript(
     # insert transcript into table
     cur.execute(
         "INSERT INTO graph.representation (schema_transcript) VALUES (%s) WHERE representation_id = %s",
-        (transcript.result(), representation_id),
+        (transcript, representation_id),
     )
     # insert url into table
     logger.info("Inserting schema_transcript_url into 'graph.schema_transcript_url'")
     cur.execute(
         "INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url) VALUES (%s, %s)",
-        (representation_id, s3_url.result()),
+        (representation_id, s3_url),
     )
     conn.commit()
 
@@ -128,7 +128,6 @@ def main_flow(
     if not full_sync:
         last_modified_date = get_last_run_config("%Y-%m-%d")
 
-    results = []
     url_list = get_url_list.submit(
         postgres_creds,
         since=last_modified_date if not full_sync else None,
@@ -136,7 +135,7 @@ def main_flow(
     for representation_id, url in url_list:
         json_string = run_node_script.submit(url=url)
         transcript = extract_transcript.submit(
-            json_string=json_string
+            json_string=json_string.result()
         )
         s3_key = s3_upload.submit(
             bucket=s3_bucket_name,
@@ -146,13 +145,10 @@ def main_flow(
         )
         result = insert_schema_transcript.submit(
             representation_id=representation_id,
-            s3_url=f"{s3_domain}/{s3_bucket_name}/{s3_key}",
-            transcript=transcript,
+            s3_url=f"{s3_domain}/{s3_bucket_name}/{s3_key.result()}",
+            transcript=transcript.result(),
             postgres_credentials=postgres_creds
         )
-        results.append(result)
-
-    return results
 
 
 if __name__ == "__main__":
