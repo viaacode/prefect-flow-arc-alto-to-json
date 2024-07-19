@@ -135,14 +135,14 @@ def main_flow(
     ).result()
     for representation_id, url in url_list:
         json_string = run_node_script.submit(url=url)
+        transcript = extract_transcript.submit(
+            json_string=json_string
+        )
         s3_key = s3_upload.submit(
             bucket=s3_bucket_name,
             key=f"{os.path.basename(url)}.json",
-            data=json_string.encode(),
+            data=json_string.result().encode(),
             aws_credentials=s3_creds,
-        )
-        transcript = extract_transcript.submit(
-            json_string=json_string
         )
         result = insert_schema_transcript.submit(
             representation_id=representation_id,
