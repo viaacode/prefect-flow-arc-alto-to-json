@@ -63,28 +63,28 @@ def run_node_script(url: str):
         raise e
 
 
-# Task to upload the JSON output to S3
-@task(task_run_name="upload-{xml_url}-to-s3")
-def upload_to_s3(
-    xml_url: str,
-    json_string: str,
-    s3_domain: str,
-    s3_credentials: AwsCredentials,
-    s3_bucket_name: str,
-):
-    logger = get_run_logger()
+# # Task to upload the JSON output to S3
+# @task(task_run_name="upload-{xml_url}-to-s3")
+# def upload_to_s3(
+#     xml_url: str,
+#     json_string: str,
+#     s3_domain: str,
+#     s3_credentials: AwsCredentials,
+#     s3_bucket_name: str,
+# ):
+#     logger = get_run_logger()
 
-    file_name = os.path.basename(xml_url)
-    s3_key = f"{file_name}.json"
-    key = s3_upload(
-        bucket=s3_bucket_name,
-        key=s3_key,
-        data=json_string,
-        aws_credentials=s3_credentials,
-    )
-    s3_url = f"{s3_domain}/{s3_bucket_name}/{s3_key}"
-    logger.info(f"Uploaded {file_name} to {s3_url}")
-    return s3_url
+#     file_name = os.path.basename(xml_url)
+#     s3_key = f"{file_name}.json"
+#     key = s3_upload(
+#         bucket=s3_bucket_name,
+#         key=s3_key,
+#         data=json_string,
+#         aws_credentials=s3_credentials,
+#     )
+#     s3_url = f"{s3_domain}/{s3_bucket_name}/{s3_key}"
+#     logger.info(f"Uploaded {file_name} to {s3_url}")
+#     return s3_url
 
 
 @task(task_run_name="insert-{s3_url}-in-database")
@@ -157,15 +157,15 @@ def main_flow(
     ).result()
     for representation_id, url in url_list:
         json_string = run_node_script.submit(url=url).result()
-        s3_url = upload_to_s3.submit(
-            xml_url=url, 
-            json_string=json_string, 
-            s3_credentials=s3_creds, 
-            s3_domain=s3_domain,
-            s3_bucket_name=s3_bucket_name).result()
+        s3_key = s3_upload.submit(
+            bucket=s3_bucket_name,
+            key=f"{os.path.basename(url)}.json",
+            data=json_string,
+            aws_credentials=s3_creds,
+        ).result()
         result = insert_schema_transcript.submit(
             representation_id=representation_id,
-            s3_url=s3_url,
+            s3_url=f"{s3_domain}/{s3_bucket_name}/{s3_key}",
             json_string=json_string,
             postgres_credentials=postgres_creds
         ).result()
