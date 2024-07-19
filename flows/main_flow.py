@@ -92,7 +92,7 @@ def insert_schema_transcript(
     logger.info(f"Updating transcript in 'graph.representation' for {representation_id}")
     # insert transcript into table
     cur.execute(
-        "UPDATE graph.representation SET schema_transcript = %s WHERE representation_id = %s",
+        "UPDATE graph.representation SET schema_transcript = %s WHERE id = %s",
         (transcript, representation_id),
     )
     # insert url into table
