@@ -7,7 +7,7 @@ import psycopg2
 import json
 from prefect_sqlalchemy.credentials import DatabaseCredentials
 from prefect_aws.s3 import s3_upload
-from prefect_aws import AwsCredentials
+from prefect_aws import AwsCredentials, AwsClientParameters
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
 
 
@@ -114,7 +114,7 @@ def insert_schema_transcript(
     on_completion=[save_last_run_config],
 )
 def main_flow(
-    s3_domain: str = "https://assets-int.hetarchief.be", 
+    s3_endpoint: str = "http://assets-int.hetarchief.be", 
     s3_bucket_name: str = "hetarchief-int",
     s3_block_name: str = "arc-object-store",
     postgres_block_name: str = "postgres",
@@ -123,6 +123,7 @@ def main_flow(
     # Load credentials
     postgres_creds = DatabaseCredentials.load(postgres_block_name)
     s3_creds = AwsCredentials.load(s3_block_name)
+    client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
 
     # Figure out start time
     if not full_sync:
@@ -142,6 +143,7 @@ def main_flow(
             key=f"{os.path.basename(url)}.json",
             data=json_string.result().encode(),
             aws_credentials=s3_creds,
+            aws_client_parameters=client_parameters
         )
         result = insert_schema_transcript.submit(
             representation_id=representation_id,
