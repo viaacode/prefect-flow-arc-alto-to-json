@@ -89,14 +89,14 @@ def insert_schema_transcript(
         # connection_factory=LoggingConnection,
     )
     cur = conn.cursor()
-    logger.info("Inserting transcript into 'graph.representation'")
+    logger.info(f"Updating transcript in 'graph.representation' for {representation_id}")
     # insert transcript into table
     cur.execute(
-        "INSERT INTO graph.representation (schema_transcript) VALUES (%s) WHERE representation_id = %s",
+        "UPDATE graph.representation SET schema_transcript = %s WHERE representation_id = %s",
         (transcript, representation_id),
     )
     # insert url into table
-    logger.info("Inserting schema_transcript_url into 'graph.schema_transcript_url'")
+    logger.info(f"Inserting {s3_url} into 'graph.schema_transcript_url' for {representation_id}")
     cur.execute(
         "INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url) VALUES (%s, %s)",
         (representation_id, s3_url),
