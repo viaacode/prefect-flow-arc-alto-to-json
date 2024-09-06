@@ -1,0 +1,6 @@
+prefect==2.14.12
+prefect-aws==0.4.12
+pydantic==1.10.8
+psycopg2-binary==2.9.5
+prefect-meemoo
+prefect-sqlalchemy
