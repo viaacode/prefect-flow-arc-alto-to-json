@@ -1,29 +1,33 @@
-from prefect import flow, task, get_run_logger
-from prefect.task_runners import ConcurrentTaskRunner
-from prefect.futures import PrefectFuture
-import subprocess
 import os
+
 import psycopg2
-import json
-from prefect_sqlalchemy.credentials import DatabaseCredentials
-from prefect_aws.s3 import s3_upload
-from prefect_aws import AwsCredentials, AwsClientParameters
+import psycopg2.extras
+from prefect import flow, get_run_logger, task
+from prefect.task_runners import ConcurrentTaskRunner
+from prefect_aws import AwsClientParameters, AwsCredentials
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
+from prefect_sqlalchemy.credentials import DatabaseCredentials
+
+from flows.convert_alto_to_simplified_json import (
+    SimplifiedAlto,
+    convert_alto_xml_url_to_simplified_json,
+)
 
 
 # Task to execute SPARQL query via API call and get file list
-@task()
+@task
 def get_url_list(
     postgres_credentials: DatabaseCredentials,
     since: str = None,
-):
+) -> list[tuple[str, str]]:
     logger = get_run_logger()
 
     sql_query = """
     SELECT representation_id, premis_stored_at
     FROM graph.file f
     JOIN graph.includes i ON i.file_id = f.id
-    WHERE f.ebucore_has_mime_type = 'application/xml' AND schema_name LIKE '%alto%'
+    WHERE f.ebucore_has_mime_type IN ('application/xml', 'text/plain') 
+    AND schema_name LIKE '%alto%'
     """
 
     if since is not None:
@@ -36,45 +40,73 @@ def get_url_list(
         host=postgres_credentials.host,
         port=postgres_credentials.port,
         database=postgres_credentials.database,
-        # connection_factory=LoggingConnection,
     )
     logger.info(f"Executing query on {postgres_credentials.host}: {sql_query}")
     cur = conn.cursor()
     cur.execute(sql_query)
-    return cur.fetchall()
+    url_list = cur.fetchall()
+    logger.info(f"Retrieved {len(url_list)} URLs.")
+    return url_list
 
 
-# Task to run the Node.js script and capture stdout as JSON
-@task(task_run_name="create-json-from-{url}")
-def run_node_script(url: str):
+@task(tags=["etl-alto"])
+def create_and_upload_transcript_batch(
+    batch: list[str, str],
+    postgres_credentials: DatabaseCredentials,
+    s3_bucket_name: str,
+    s3_credentials: AwsCredentials,
+    s3_client_parameters: AwsClientParameters = AwsClientParameters(),
+) -> list[str, str, str]:
     logger = get_run_logger()
 
-    try:
-        # Run the Node.js script using subprocess
-        result = subprocess.run(
-            ["node", "script/extract-text-lines-from-alto.js", url],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise Exception(f"Error running script for {url}: {result.stderr}")
-        return result.stdout
-    except Exception as e:
-        logger.error(f"Failed to process {url}: {str(e)}")
-        raise e
-@task()
-def extract_transcript(json_string: str):
-    # process JSON
-    parsed_json = json.loads(json_string)
-    # get the full text
-    return " ".join(item["text"] for item in parsed_json["text"])
+    output = []
+    for representation_id, url in batch:
+        try:
+            transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(url)
+            s3_key = f"{os.path.basename(url)}.json"
+
+            s3_client = s3_credentials.get_boto3_session().client(
+                "s3",
+                **s3_client_parameters.get_params_override(),
+            )
+
+            s3_client.put_object(
+                Bucket=s3_bucket_name,
+                Key=s3_key,
+                Body=str(transcript).encode("utf-8"),
+            )
+
+            output.append(
+                (
+                    representation_id,
+                    f"{s3_client_parameters.endpoint_url}/{s3_bucket_name}/{s3_key}",
+                    transcript.to_transcript(),
+                ),
+            )
+
+            # Print progress in 10 updates
+            if len(output) % (len(batch) / 10) == 0:
+                logger.info(
+                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s.",
+                    len(output)/len(batch),
+                    representation_id,
+                    s3_key,
+                    s3_bucket_name,
+                )
+
+        except Exception:
+            logger.exception(
+                "Failed to process Alto XML at %s to bucket %s with key %s.",
+                url,
+                s3_bucket_name,
+                s3_key,
+            )
+    insert_schema_transcript_batch(output, postgres_credentials=postgres_credentials)
 
 
-@task(task_run_name="insert-{s3_url}-in-database")
-def insert_schema_transcript(
-    representation_id: str,
-    s3_url: str,
-    transcript: str,
+# @task
+def insert_schema_transcript_batch(
+    batch: list[str, str, str],
     postgres_credentials: DatabaseCredentials,
 ):
     logger = get_run_logger()
@@ -89,17 +121,40 @@ def insert_schema_transcript(
         # connection_factory=LoggingConnection,
     )
     cur = conn.cursor()
-    logger.info(f"Updating transcript in 'graph.representation' for {representation_id}")
+    logger.info("Updating %s transcripts in 'graph.representation'.", len(batch))
     # insert transcript into table
-    cur.execute(
-        "UPDATE graph.representation SET schema_transcript = %s WHERE id = %s",
-        (transcript, representation_id),
+    update_query = """
+        UPDATE graph.representation 
+        SET schema_transcript = data.schema_transcript 
+        FROM (VALUES %s) AS data (id, schema_transcript) 
+        WHERE graph.representation.id = data.id;
+        """
+
+    psycopg2.extras.execute_values(
+        cur,
+        update_query,
+        (
+            (representation_id, alto_json)
+            for representation_id, s3_url, alto_json in batch
+        ),
+        template=None,
+        page_size=100,
     )
+
     # insert url into table
-    logger.info(f"Inserting {s3_url} into 'graph.schema_transcript_url' for {representation_id}")
-    cur.execute(
-        "INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url) VALUES (%s, %s)",
-        (representation_id, s3_url),
+    logger.info("Inserting %s URLs into 'graph.schema_transcript_url'.", len(batch))
+    insert_query = """
+        INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url) 
+        VALUES %s 
+        ON CONFLICT(representation_id) 
+        DO UPDATE SET schema_transcript_url = EXCLUDED.schema_transcript_url;
+        """
+    psycopg2.extras.execute_values(
+        cur,
+        insert_query,
+        ((representation_id, s3_url) for representation_id, s3_url, alto_json in batch),
+        template=None,
+        page_size=100,
     )
     conn.commit()
 
@@ -114,44 +169,34 @@ def insert_schema_transcript(
     on_completion=[save_last_run_config],
 )
 def main_flow(
-    s3_endpoint: str = "http://assets-int.hetarchief.be", 
-    s3_bucket_name: str = "hetarchief-int",
+    s3_endpoint: str = "http://assets-int.hetarchief.be",
+    s3_bucket_name: str = "hetarchief",
     s3_block_name: str = "arc-object-store",
-    postgres_block_name: str = "postgres",
+    db_block_name: str = "local",
+    batch_size: int = 100,
     full_sync: bool = False,
 ):
     # Load credentials
-    postgres_creds = DatabaseCredentials.load(postgres_block_name)
-    s3_creds = AwsCredentials.load(s3_block_name)
-    client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
+    postgres_creds = DatabaseCredentials.load(db_block_name)
+    s3_credentials = AwsCredentials.load(s3_block_name)
+    s3_client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
 
     # Figure out start time
     if not full_sync:
         last_modified_date = get_last_run_config("%Y-%m-%d")
 
-    url_list = get_url_list.submit(
+    url_list = get_url_list(
         postgres_creds,
         since=last_modified_date if not full_sync else None,
-    ).result()
-    for representation_id, url in url_list:
-        json_string = run_node_script.submit(url=url)
-        transcript = extract_transcript.submit(
-            json_string=json_string.result()
-        )
-        s3_key = s3_upload.submit(
-            bucket=s3_bucket_name,
-            key=f"{os.path.basename(url)}.json",
-            data=json_string.result().encode(),
-            aws_credentials=s3_creds,
-            aws_client_parameters=client_parameters
-        )
-        result = insert_schema_transcript.submit(
-            representation_id=representation_id,
-            s3_url=f"{s3_endpoint}/{s3_bucket_name}/{s3_key.result()}",
-            transcript=transcript.result(),
-            postgres_credentials=postgres_creds
-        )
+    )
 
+    for i in range(0, len(url_list), batch_size):
+        batch = url_list[i : i + batch_size]
 
-if __name__ == "__main__":
-    main_flow()
+        create_and_upload_transcript_batch.submit(
+            batch,
+            postgres_credentials=postgres_creds,
+            s3_bucket_name=s3_bucket_name,
+            s3_credentials=s3_credentials,
+            s3_client_parameters=s3_client_parameters,
+        )
