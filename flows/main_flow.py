@@ -88,7 +88,7 @@ def create_and_upload_transcript_batch(
             if len(output) % (len(batch) / 10) == 0:
                 logger.info(
                     "S3 Upload %s%% done. Last representation %s had key %s to bucket %s.",
-                    len(output)/len(batch),
+                    len(output) / len(batch),
                     representation_id,
                     s3_key,
                     s3_bucket_name,
