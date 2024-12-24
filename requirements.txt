@@ -1,6 +1,8 @@
+psycopg2-binary==2.9.5
+prefect-meemoo[config]==0.9.0a4 
+prefect-sqlalchemy
 prefect==2.14.12
+griffe==0.48.0
 prefect-aws==0.4.12
 pydantic==1.10.8
-psycopg2-binary==2.9.5
-prefect-meemoo
-prefect-sqlalchemy
+lxml==5.3.0
