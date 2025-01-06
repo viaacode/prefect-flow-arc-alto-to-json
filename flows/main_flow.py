@@ -129,7 +129,7 @@ def insert_schema_transcript_batch(
         INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url, schema_transcript) 
         VALUES %s 
         ON CONFLICT(representation_id) 
-        DO UPDATE SET schema_transcript_url = EXCLUDED.schema_transcript_url AND schema_transcript = EXCLUDED.schema_transcript;
+        DO UPDATE SET schema_transcript_url = EXCLUDED.schema_transcript_url, schema_transcript = EXCLUDED.schema_transcript;
         """
     psycopg2.extras.execute_values(
         cur,
