@@ -60,6 +60,7 @@ def create_and_upload_transcript_batch(
     logger = get_run_logger()
 
     output = []
+    failed = False
     for representation_id, url in batch:
         try:
             transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(url)
@@ -94,13 +95,14 @@ def create_and_upload_transcript_batch(
                     s3_bucket_name,
                 )
 
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Failed to process Alto XML at %s to bucket %s with key %s.",
                 url,
                 s3_bucket_name,
                 s3_key,
             )
+            raise e
     insert_schema_transcript_batch(output, postgres_credentials=postgres_credentials)
 
 
