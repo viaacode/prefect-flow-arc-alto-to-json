@@ -68,6 +68,10 @@ def create_and_upload_transcript_batch(
 
             s3_client = s3_credentials.get_boto3_session().client(
                 "s3",
+                config=Config(
+                    request_checksum_calculation="when_required",
+                    response_checksum_validation="when_required",
+                ),
                 **s3_client_parameters.get_params_override(),
             )
 
@@ -75,10 +79,6 @@ def create_and_upload_transcript_batch(
                 Bucket=s3_bucket_name,
                 Key=s3_key,
                 Body=str(transcript).encode("utf-8"),
-                config=Config(
-                    request_checksum_calculation="when_required",
-                    response_checksum_validation="when_required",
-                ),
             )
 
             output.append(
