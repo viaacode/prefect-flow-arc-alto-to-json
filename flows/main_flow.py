@@ -7,6 +7,7 @@ from prefect.task_runners import ConcurrentTaskRunner
 from prefect_aws import AwsClientParameters, AwsCredentials
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
 from prefect_sqlalchemy.credentials import DatabaseCredentials
+from botocore.config import Config
 
 from flows.convert_alto_to_simplified_json import (
     SimplifiedAlto,
@@ -67,6 +68,10 @@ def create_and_upload_transcript_batch(
 
             s3_client = s3_credentials.get_boto3_session().client(
                 "s3",
+                config=Config(
+                    request_checksum_calculation="when_required",
+                    response_checksum_validation="when_required",
+                ),
                 **s3_client_parameters.get_params_override(),
             )
 
@@ -94,13 +99,14 @@ def create_and_upload_transcript_batch(
                     s3_bucket_name,
                 )
 
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Failed to process Alto XML at %s to bucket %s with key %s.",
                 url,
                 s3_bucket_name,
                 s3_key,
             )
+            raise e
     insert_schema_transcript_batch(output, postgres_credentials=postgres_credentials)
 
 
@@ -121,7 +127,6 @@ def insert_schema_transcript_batch(
         # connection_factory=LoggingConnection,
     )
     cur = conn.cursor()
-
 
     # insert url into table
     logger.info("Inserting %s URLs into 'graph.schema_transcript_url'.", len(batch))
