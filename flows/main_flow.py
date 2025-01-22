@@ -88,7 +88,7 @@ def create_and_upload_transcript_batch(
             if len(output) % (len(batch) / 10) == 0:
                 logger.info(
                     "S3 Upload %s%% done. Last representation %s had key %s to bucket %s.",
-                    len(output) / len(batch),
+                    round((len(output) / len(batch)) * 100),
                     representation_id,
                     s3_key,
                     s3_bucket_name,
@@ -121,38 +121,20 @@ def insert_schema_transcript_batch(
         # connection_factory=LoggingConnection,
     )
     cur = conn.cursor()
-    logger.info("Updating %s transcripts in 'graph.representation'.", len(batch))
-    # insert transcript into table
-    update_query = """
-        UPDATE graph.representation 
-        SET schema_transcript = data.schema_transcript 
-        FROM (VALUES %s) AS data (id, schema_transcript) 
-        WHERE graph.representation.id = data.id;
-        """
 
-    psycopg2.extras.execute_values(
-        cur,
-        update_query,
-        (
-            (representation_id, alto_json)
-            for representation_id, s3_url, alto_json in batch
-        ),
-        template=None,
-        page_size=100,
-    )
 
     # insert url into table
     logger.info("Inserting %s URLs into 'graph.schema_transcript_url'.", len(batch))
     insert_query = """
-        INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url) 
+        INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url, schema_transcript) 
         VALUES %s 
         ON CONFLICT(representation_id) 
-        DO UPDATE SET schema_transcript_url = EXCLUDED.schema_transcript_url;
+        DO UPDATE SET schema_transcript_url = EXCLUDED.schema_transcript_url, schema_transcript = EXCLUDED.schema_transcript;
         """
     psycopg2.extras.execute_values(
         cur,
         insert_query,
-        ((representation_id, s3_url) for representation_id, s3_url, alto_json in batch),
+        batch,
         template=None,
         page_size=100,
     )
