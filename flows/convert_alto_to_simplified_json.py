@@ -28,7 +28,9 @@ class TextLine:
 
 class SimplifiedAlto:
     def __init__(
-        self, description: Dict[str, Optional[str]], text: Optional[List[TextLine]],
+        self,
+        description: Dict[str, Optional[str]],
+        text: Optional[List[TextLine]],
     ):
         self.description = description
         self.text = text
@@ -49,14 +51,22 @@ class SimplifiedAlto:
 def extract_text_lines_from_alto(alto_tree: ET.ElementTree) -> SimplifiedAlto:
     root = alto_tree.getroot()
     namespace = root.tag.split("}")[0].strip("{")
-    alto_version = namespace.split("/")[-1]
+    alto_version = None
 
     # Fallback for XML that is not well-formed
     if namespace is None or not namespace.startswith(
         "http://www.loc.gov/standards/alto/",
     ):
-        alto_version = root.attrib.get("xsi:schemaLocation").split()[0].split("/")[-1]
+        # Try to get schemaLocation
+        schemaLocation = root.attrib.get("xsi:schemaLocation")
+        alto_version = (
+            root.attrib.get("xsi:schemaLocation").split()[0].split("/")[-1]
+            if schemaLocation is not None
+            else None
+        )
         namespace = ""
+    else:
+        alto_version = namespace.split("/")[-1]
 
     def get_text_lines_v2(layout):
         text_lines = []
