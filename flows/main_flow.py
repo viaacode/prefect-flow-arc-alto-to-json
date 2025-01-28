@@ -3,6 +3,7 @@ import os
 import psycopg2
 import psycopg2.extras
 from prefect import flow, get_run_logger, task
+from prefect.states import Failed
 from prefect.task_runners import ConcurrentTaskRunner
 from prefect_aws import AwsClientParameters, AwsCredentials
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
@@ -99,15 +100,18 @@ def create_and_upload_transcript_batch(
                     s3_bucket_name,
                 )
 
-        except Exception as e:
+        except Exception:
             logger.exception(
                 "Failed to process Alto XML at %s to bucket %s with key %s.",
                 url,
                 s3_bucket_name,
                 s3_key,
             )
-            raise e
+
     insert_schema_transcript_batch(output, postgres_credentials=postgres_credentials)
+
+    if len(output) < len(batch):
+        return Failed(f"Failed to process {len(batch)-len(output)}/{len(batch)} items.", result=output) 
 
 
 # @task
