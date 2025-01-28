@@ -108,14 +108,22 @@ def create_and_upload_transcript_batch(
                 s3_key,
             )
 
-    insert_schema_transcript_batch(output, postgres_credentials=postgres_credentials)
+    try:
+        insert_schema_transcript_batch(
+            output, postgres_credentials=postgres_credentials
+        )
 
-    total = len(batch)
-    succeeded = len(output)
-    if succeeded < total:
-        failed = total - succeeded
-        return Failed(message=f"Batch failed: {failed}/{total} items not processed.")
-    return Completed(message=f"Batch succeeded: {total} items processed.")
+        total = len(batch)
+        succeeded = len(output)
+        if succeeded < total:
+            failed = total - succeeded
+            return Failed(
+                message=f"Batch failed: {failed}/{total} items not processed."
+            )
+        return Completed(message=f"Batch succeeded: {total} items processed.")
+    except Exception as e:
+        logger.exception("Failed to insert batch.")
+        raise e
 
 
 # @task
@@ -152,6 +160,7 @@ def insert_schema_transcript_batch(
         page_size=100,
     )
     conn.commit()
+    logger.info("URLs inserted into 'graph.schema_transcript_url'.")
 
     # Step 5: Clean up and close the connection
     cur.close()
