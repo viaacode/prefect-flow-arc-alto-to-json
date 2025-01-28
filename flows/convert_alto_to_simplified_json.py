@@ -54,9 +54,7 @@ def extract_text_lines_from_alto(alto_tree: ET.ElementTree) -> SimplifiedAlto:
     alto_version = None
 
     # Fallback for XML that is not well-formed
-    if namespace is None or not namespace.startswith(
-        "http://www.loc.gov/standards/alto/",
-    ):
+    if namespace is None:
         # Try to get schemaLocation
         schemaLocation = root.attrib.get("xsi:schemaLocation")
         alto_version = (
@@ -65,6 +63,10 @@ def extract_text_lines_from_alto(alto_tree: ET.ElementTree) -> SimplifiedAlto:
             else None
         )
         namespace = ""
+    elif not namespace.startswith(
+        "http://www.loc.gov/standards/alto/",
+    ):
+        alto_version = None
     else:
         alto_version = namespace.split("/")[-1]
 
@@ -164,7 +166,7 @@ def extract_text_lines_from_alto(alto_tree: ET.ElementTree) -> SimplifiedAlto:
             }
         return {}
 
-    if alto_version == "ns-v2#":
+    if alto_version == "ns-v2#" or alto_version is None:
         layout = root.find(f".//{{{namespace}}}Layout")
         text_lines = get_text_lines_v2(layout) if layout else []
     elif alto_version == "ns-v3#":
