@@ -3,7 +3,7 @@ import os
 import psycopg2
 import psycopg2.extras
 from prefect import flow, get_run_logger, task
-from prefect.states import Failed
+from prefect.states import Failed, Completed
 from prefect.task_runners import ConcurrentTaskRunner
 from prefect_aws import AwsClientParameters, AwsCredentials
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
@@ -110,8 +110,12 @@ def create_and_upload_transcript_batch(
 
     insert_schema_transcript_batch(output, postgres_credentials=postgres_credentials)
 
-    if len(output) < len(batch):
-        return Failed(f"Failed to process {len(batch)-len(output)}/{len(batch)} items.", result=output) 
+    total = len(batch)
+    succeeded = len(output)
+    if succeeded < total:
+        failed = total - succeeded
+        return Failed(message=f"Batch failed: {failed}/{total} items not processed.")
+    return Completed(message=f"Batch succeeded: {total} items processed.")
 
 
 # @task
