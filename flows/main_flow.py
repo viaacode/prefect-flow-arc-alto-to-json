@@ -63,12 +63,16 @@ def create_and_upload_transcript_batch(
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
+    count = 0
+    skipped = 0
     output = []
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
             if is_alto_modified(url, since):
-                transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(url)
+                transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
+                    url
+                )
 
                 s3_client = s3_credentials.get_boto3_session().client(
                     "s3",
@@ -92,15 +96,19 @@ def create_and_upload_transcript_batch(
                         transcript.to_transcript(),
                     ),
                 )
+            else:
+                skipped += 1
 
             # Print progress in 10 updates
-            if len(output) % (len(batch) / 10) == 0:
+            count += 1
+            if count % (len(batch) / 10) == 0:
                 logger.info(
-                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s.",
+                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s (skipped unmodified: %s).",
                     round((len(output) / len(batch)) * 100),
                     representation_id,
                     s3_key,
                     s3_bucket_name,
+                    skipped,
                 )
 
         except Exception:
@@ -121,9 +129,9 @@ def create_and_upload_transcript_batch(
         if succeeded < total:
             failed = total - succeeded
             return Failed(
-                message=f"Batch failed: {failed}/{total} items not processed."
+                message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified)."
             )
-        return Completed(message=f"Batch succeeded: {total} items processed.")
+        return Completed(message=f"Batch succeeded: {total} items processed ({skipped} skipped unmodified).")
     except Exception as e:
         logger.exception("Failed to insert batch.")
         raise e
@@ -182,7 +190,7 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
-    skipUnmodified: bool = True
+    skipUnmodified: bool = True,
 ):
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
@@ -206,5 +214,5 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
-            since=last_modified_date if skipUnmodified else None
+            since=last_modified_date if skipUnmodified else None,
         )
