@@ -209,7 +209,7 @@ def convert_alto_xml_url_to_simplified_json(url: str) -> SimplifiedAlto:
     return extract_text_lines_from_alto(alto_tree)
 
 
-def is_alto_modified(url: str, since: str | None):
+def is_alto_modified(url: str, since: str):
     if since is None:
         return True
 
