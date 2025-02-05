@@ -63,9 +63,9 @@ def create_and_upload_transcript_batch(
 
     output = []
     for representation_id, url in batch:
+        s3_key = f"{os.path.basename(url)}.json"
         try:
             transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(url)
-            s3_key = f"{os.path.basename(url)}.json"
 
             s3_client = s3_credentials.get_boto3_session().client(
                 "s3",
