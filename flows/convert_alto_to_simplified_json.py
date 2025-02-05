@@ -3,6 +3,8 @@ import sys
 from typing import Dict, List, Optional
 
 import requests
+import datetime
+from dateutil.parser import parse as parsedate
 
 from lxml import etree as ET
 from urllib.parse import urlparse, urlunparse
@@ -205,6 +207,18 @@ def convert_alto_xml_url_to_simplified_json(url: str) -> SimplifiedAlto:
         ET.fromstring(response.content, ET.XMLParser(encoding="utf-8", recover=True)),
     )
     return extract_text_lines_from_alto(alto_tree)
+
+
+def is_alto_modified(url: str, since: str | None):
+    if since is None:
+        return True
+
+    r = requests.head(url)
+    url_time = r.headers["last-modified"]
+    url_date = parsedate(url_time)
+    since_datetime = parsedate(since)
+
+    return url_date > since_datetime
 
 
 if __name__ == "__main__":
