@@ -4,8 +4,22 @@ from typing import Dict, List, Optional
 
 import requests
 
-# import xml.etree.ElementTree as ET
 from lxml import etree as ET
+from urllib.parse import urlparse, urlunparse
+
+
+# Helper function that removes third part of URL path
+def rewrite_url(url):
+    parsed_url = urlparse(url)
+    path_parts = parsed_url.path.strip("/").split("/")
+
+    if len(path_parts) >= 3:
+        path_parts.pop(2)  # Remove the third segment
+
+    new_path = "/" + "/".join(path_parts)
+    new_url = urlunparse((parsed_url.scheme, parsed_url.netloc, new_path, "", "", ""))
+
+    return new_url
 
 
 class TextLine:
@@ -181,6 +195,11 @@ def extract_text_lines_from_alto(alto_tree: ET.ElementTree) -> SimplifiedAlto:
 
 def convert_alto_xml_url_to_simplified_json(url: str) -> SimplifiedAlto:
     response = requests.get(url)
+    # TEMP FIX: rewrite URL without third path component and try again
+    if not response.ok:
+        url = rewrite_url(url)
+        response = requests.get(url)
+
     response.raise_for_status()
     alto_tree = ET.ElementTree(
         ET.fromstring(response.content, ET.XMLParser(encoding="utf-8", recover=True)),
