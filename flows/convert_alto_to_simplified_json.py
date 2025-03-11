@@ -68,7 +68,7 @@ def extract_text_lines_from_alto(alto_tree: ET.ElementTree) -> SimplifiedAlto:
     alto_version = None
 
     # Fallback for XML that is not well-formed
-    if namespace is None:
+    if namespace in (None, "alto"):
         # Try to get schemaLocation
         schemaLocation = root.attrib.get("xsi:schemaLocation")
         alto_version = (
