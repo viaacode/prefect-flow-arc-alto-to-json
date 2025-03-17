@@ -66,6 +66,7 @@ def create_and_upload_transcript_batch(
     count = 0
     skipped = 0
     output = []
+    logger.info("Processing batch of %s representations. Skipping since %s.", len(batch), since)
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
@@ -190,7 +191,7 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
-    skipUnmodified: bool = True,
+    skip_unmodified: bool = True,
 ):
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
@@ -198,7 +199,7 @@ def main_flow(
     s3_client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
 
     # Figure out start time
-    last_modified_date = get_last_run_config("%Y-%m-%d")
+    last_modified_date = get_last_run_config()
 
     url_list = get_url_list(
         postgres_creds,
@@ -214,5 +215,5 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
-            since=last_modified_date if skipUnmodified else None,
+            since=last_modified_date if skip_unmodified else None,
         )
