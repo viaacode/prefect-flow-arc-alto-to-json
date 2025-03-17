@@ -66,7 +66,9 @@ def create_and_upload_transcript_batch(
     count = 0
     skipped = 0
     output = []
-    logger.info("Processing batch of %s representations. Skipping since %s.", len(batch), since)
+    logger.info(
+        "Processing batch of %s representations. Skipping since %s.", len(batch), since
+    )
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
@@ -132,7 +134,9 @@ def create_and_upload_transcript_batch(
             return Failed(
                 message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified)."
             )
-        return Completed(message=f"Batch succeeded: {total} items processed ({skipped} skipped unmodified).")
+        return Completed(
+            message=f"Batch succeeded: {total} items processed ({skipped} skipped unmodified)."
+        )
     except Exception as e:
         logger.exception("Failed to insert batch.")
         raise e
@@ -193,6 +197,8 @@ def main_flow(
     full_sync: bool = False,
     skip_unmodified: bool = True,
 ):
+    logger = get_run_logger()
+
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
     s3_credentials = AwsCredentials.load(s3_block_name)
@@ -200,6 +206,7 @@ def main_flow(
 
     # Figure out start time
     last_modified_date = get_last_run_config()
+    logger.info("Last run: %s", last_modified_date)
 
     url_list = get_url_list(
         postgres_creds,
