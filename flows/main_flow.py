@@ -58,7 +58,7 @@ def create_and_upload_transcript_batch(
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
     s3_client_parameters: AwsClientParameters = AwsClientParameters(),
-    replace_url: tuple[str, str] = (None, None),
+    replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
@@ -183,7 +183,7 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
-    replace_url: tuple[str, str] = (None, None),
+    replace_url: tuple[str, str] = ("", ""),
 ):
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
