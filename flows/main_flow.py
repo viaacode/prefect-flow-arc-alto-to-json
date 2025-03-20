@@ -58,6 +58,7 @@ def create_and_upload_transcript_batch(
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
     s3_client_parameters: AwsClientParameters = AwsClientParameters(),
+    replace_url: tuple[str, str] = (None, None),
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
@@ -65,6 +66,9 @@ def create_and_upload_transcript_batch(
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
+            # WORKAROUND: replace domain
+            if replace_url[0] is not None and replace_url[1] is not None:
+                url = url.replace(replace_url[0], replace_url[1])
             transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(url)
 
             s3_client = s3_credentials.get_boto3_session().client(
@@ -179,6 +183,7 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
+    replace_url: tuple[str, str] = (None, None),
 ):
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
@@ -203,4 +208,5 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
+            replace_url=replace_url,
         )
