@@ -60,6 +60,7 @@ def create_and_upload_transcript_batch(
     s3_credentials: AwsCredentials,
     s3_client_parameters: AwsClientParameters = AwsClientParameters(),
     since: str = None,
+    replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
@@ -73,6 +74,10 @@ def create_and_upload_transcript_batch(
         s3_key = f"{os.path.basename(url)}.json"
         try:
             if is_alto_modified(url, since):
+                # WORKAROUND: replace domain
+                if replace_url[0] is not None and replace_url[1] is not None:
+                    url = url.replace(replace_url[0], replace_url[1])
+
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
                 )
@@ -196,6 +201,7 @@ def main_flow(
     batch_size: int = 100,
     full_sync: bool = False,
     skip_unmodified: bool = True,
+    replace_url: tuple[str, str] = ("", ""),
 ):
     logger = get_run_logger()
 
@@ -214,7 +220,7 @@ def main_flow(
     )
 
     for i in range(0, len(url_list), batch_size):
-        batch = url_list[i : i + batch_size]
+        batch = url_list[i: i + batch_size]
 
         create_and_upload_transcript_batch.submit(
             batch,
@@ -223,4 +229,5 @@ def main_flow(
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
             since=last_modified_date if skip_unmodified else None,
+            replace_url=replace_url,
         )
