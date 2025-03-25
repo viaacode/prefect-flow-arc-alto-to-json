@@ -34,7 +34,7 @@ def get_url_list(
     """
 
     if since is not None:
-        sql_query += f" AND f.updated_at >= {since}"
+        sql_query += f" AND f.updated_at >= '{since}'"
 
     # Step 1: Establish a connection to the PostgreSQL database
     conn = psycopg2.connect(
