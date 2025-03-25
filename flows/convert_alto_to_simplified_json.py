@@ -213,8 +213,13 @@ def is_alto_modified(url: str, since: str):
     if since is None:
         return True
 
-    r = requests.head(url)
-    url_time = r.headers["last-modified"]
+    response = requests.head(url)
+    # TEMP FIX: rewrite URL without third path component and try again
+    if not response.ok:
+        url = rewrite_url(url)
+        response = requests.head(url)
+
+    url_time = response.headers["last-modified"]
     url_date = parsedate(url_time)
     since_datetime = parsedate(since)
 
