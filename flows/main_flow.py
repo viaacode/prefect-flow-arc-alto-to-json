@@ -73,11 +73,11 @@ def create_and_upload_transcript_batch(
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
-            if is_alto_modified(url, since):
-                # WORKAROUND: replace domain
-                if replace_url[0] is not None and replace_url[1] is not None:
-                    url = url.replace(replace_url[0], replace_url[1])
+            # WORKAROUND: replace domain
+            if replace_url[0] is not None and replace_url[1] is not None:
+                url = url.replace(replace_url[0], replace_url[1])
 
+            if is_alto_modified(url, since):
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
                 )
@@ -200,7 +200,7 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
-    skip_unmodified: bool = True,
+    full_sync_modified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ):
     logger = get_run_logger()
@@ -216,7 +216,7 @@ def main_flow(
 
     url_list = get_url_list(
         postgres_creds,
-        since=last_modified_date if not full_sync else None,
+        since=last_modified_date if not (full_sync or full_sync_modified) else None,
     )
 
     for i in range(0, len(url_list), batch_size):
@@ -228,6 +228,6 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
-            since=last_modified_date if skip_unmodified else None,
+            since=last_modified_date,
             replace_url=replace_url,
         )
