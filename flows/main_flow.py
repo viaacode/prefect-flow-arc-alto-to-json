@@ -13,6 +13,7 @@ from botocore.config import Config
 from flows.convert_alto_to_simplified_json import (
     SimplifiedAlto,
     convert_alto_xml_url_to_simplified_json,
+    is_alto_modified,
 )
 
 
@@ -58,50 +59,64 @@ def create_and_upload_transcript_batch(
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
     s3_client_parameters: AwsClientParameters = AwsClientParameters(),
+    since: str = None,
     replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
+    count = 0
+    skipped = 0
     output = []
+    logger.info(
+        "Processing batch of %s representations. Skipping since %s.", len(batch), since
+    )
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
             # WORKAROUND: replace domain
             if replace_url[0] is not None and replace_url[1] is not None:
                 url = url.replace(replace_url[0], replace_url[1])
-            transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(url)
 
-            s3_client = s3_credentials.get_boto3_session().client(
-                "s3",
-                config=Config(
-                    request_checksum_calculation="when_required",
-                    response_checksum_validation="when_required",
-                ),
-                **s3_client_parameters.get_params_override(),
-            )
+            if is_alto_modified(url, since):
+                transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
+                    url
+                )
 
-            s3_client.put_object(
-                Bucket=s3_bucket_name,
-                Key=s3_key,
-                Body=str(transcript).encode("utf-8"),
-            )
+                s3_client = s3_credentials.get_boto3_session().client(
+                    "s3",
+                    config=Config(
+                        request_checksum_calculation="when_required",
+                        response_checksum_validation="when_required",
+                    ),
+                    **s3_client_parameters.get_params_override(),
+                )
 
-            output.append(
-                (
-                    representation_id,
-                    f"{s3_client_parameters.endpoint_url}/{s3_bucket_name}/{s3_key}",
-                    transcript.to_transcript(),
-                ),
-            )
+                s3_client.put_object(
+                    Bucket=s3_bucket_name,
+                    Key=s3_key,
+                    Body=str(transcript).encode("utf-8"),
+                )
+
+                output.append(
+                    (
+                        representation_id,
+                        f"{s3_client_parameters.endpoint_url}/{s3_bucket_name}/{s3_key}",
+                        transcript.to_transcript(),
+                    ),
+                )
+            else:
+                skipped += 1
 
             # Print progress in 10 updates
-            if len(output) % (len(batch) / 10) == 0:
+            count += 1
+            if count % (len(batch) / 10) == 0:
                 logger.info(
-                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s.",
+                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s (skipped unmodified: %s).",
                     round((len(output) / len(batch)) * 100),
                     representation_id,
                     s3_key,
                     s3_bucket_name,
+                    skipped,
                 )
 
         except Exception:
@@ -119,12 +134,14 @@ def create_and_upload_transcript_batch(
 
         total = len(batch)
         succeeded = len(output)
-        if succeeded < total:
+        if (succeeded + skipped) < total:
             failed = total - succeeded
             return Failed(
-                message=f"Batch failed: {failed}/{total} items not processed."
+                message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified)."
             )
-        return Completed(message=f"Batch succeeded: {total} items processed.")
+        return Completed(
+            message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified)."
+        )
     except Exception as e:
         logger.exception("Failed to insert batch.")
         raise e
@@ -183,24 +200,27 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
+    full_sync_modified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ):
+    logger = get_run_logger()
+
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
     s3_credentials = AwsCredentials.load(s3_block_name)
     s3_client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
 
     # Figure out start time
-    if not full_sync:
-        last_modified_date = get_last_run_config("%Y-%m-%d")
+    last_modified_date = get_last_run_config()
+    logger.info("Last run: %s", last_modified_date)
 
     url_list = get_url_list(
         postgres_creds,
-        since=last_modified_date if not full_sync else None,
+        since=last_modified_date if not (full_sync or full_sync_modified) else None,
     )
 
     for i in range(0, len(url_list), batch_size):
-        batch = url_list[i : i + batch_size]
+        batch = url_list[i: i + batch_size]
 
         create_and_upload_transcript_batch.submit(
             batch,
@@ -208,5 +228,6 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
+            since=last_modified_date,
             replace_url=replace_url,
         )
