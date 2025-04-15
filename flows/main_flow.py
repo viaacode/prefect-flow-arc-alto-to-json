@@ -26,7 +26,7 @@ def get_url_list(
     logger = get_run_logger()
 
     sql_query = """
-    SELECT representation_id, premis_stored_at, t.updated_at
+    SELECT i.representation_id, f.premis_stored_at, t.updated_at
     FROM graph.file f
     JOIN graph.includes i ON i.file_id = f.id
     LEFT JOIN graph.schema_transcript_url t ON i.representation_id = t.representation_id
