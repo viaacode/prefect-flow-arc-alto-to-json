@@ -209,7 +209,7 @@ def convert_alto_xml_url_to_simplified_json(url: str) -> SimplifiedAlto:
     return extract_text_lines_from_alto(alto_tree)
 
 
-def is_alto_modified(url: str, since: str):
+def is_alto_modified(url: str, since: datetime):
     if since is None:
         return True
 
@@ -221,9 +221,8 @@ def is_alto_modified(url: str, since: str):
 
     url_time = response.headers["last-modified"]
     url_date = parsedate(url_time)
-    since_datetime = parsedate(since)
 
-    return url_date > since_datetime
+    return url_date > since
 
 
 if __name__ == "__main__":
