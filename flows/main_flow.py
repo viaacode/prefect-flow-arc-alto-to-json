@@ -34,9 +34,6 @@ def get_url_list(
     AND schema_name LIKE '%alto%'
     """
 
-    if since is not None:
-        sql_query += f" AND f.updated_at >= '{since}'"
-
     # Step 1: Establish a connection to the PostgreSQL database
     conn = psycopg2.connect(
         user=postgres_credentials.username,
@@ -47,7 +44,12 @@ def get_url_list(
     )
     logger.info(f"Executing query on {postgres_credentials.host}: {sql_query}")
     cur = conn.cursor()
-    cur.execute(sql_query)
+
+    if since is not None:
+        sql_query += " AND f.updated_at >= %(since)s"
+        cur.execute(sql_query, {"since": since})
+    else:
+        cur.execute(sql_query)
     url_list = cur.fetchall()
     logger.info(f"Retrieved {len(url_list)} URLs.")
     return url_list
