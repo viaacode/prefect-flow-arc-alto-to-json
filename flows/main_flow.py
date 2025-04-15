@@ -26,15 +26,13 @@ def get_url_list(
     logger = get_run_logger()
 
     sql_query = """
-    SELECT representation_id, premis_stored_at
+    SELECT i.representation_id, f.premis_stored_at, t.updated_at
     FROM graph.file f
     JOIN graph.includes i ON i.file_id = f.id
+    LEFT JOIN graph.schema_transcript_url t ON i.representation_id = t.representation_id
     WHERE f.ebucore_has_mime_type IN ('application/xml', 'text/plain') 
     AND schema_name LIKE '%alto%'
     """
-
-    if since is not None:
-        sql_query += f" AND f.updated_at >= '{since}'"
 
     # Step 1: Establish a connection to the PostgreSQL database
     conn = psycopg2.connect(
@@ -46,7 +44,12 @@ def get_url_list(
     )
     logger.info(f"Executing query on {postgres_credentials.host}: {sql_query}")
     cur = conn.cursor()
-    cur.execute(sql_query)
+
+    if since is not None:
+        sql_query += " AND f.updated_at >= %(since)s"
+        cur.execute(sql_query, {"since": since})
+    else:
+        cur.execute(sql_query)
     url_list = cur.fetchall()
     logger.info(f"Retrieved {len(url_list)} URLs.")
     return url_list
@@ -59,7 +62,7 @@ def create_and_upload_transcript_batch(
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
     s3_client_parameters: AwsClientParameters = AwsClientParameters(),
-    since: str = None,
+    skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
     logger = get_run_logger()
@@ -68,16 +71,16 @@ def create_and_upload_transcript_batch(
     skipped = 0
     output = []
     logger.info(
-        "Processing batch of %s representations. Skipping since %s.", len(batch), since
+        "Processing batch of %s representations.", len(batch)
     )
-    for representation_id, url in batch:
+    for representation_id, url, updated_at in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
             # WORKAROUND: replace domain
             if replace_url[0] is not None and replace_url[1] is not None:
                 url = url.replace(replace_url[0], replace_url[1])
 
-            if is_alto_modified(url, since):
+            if (not skip_unmodified) or is_alto_modified(url, updated_at):
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
                 )
@@ -200,7 +203,7 @@ def main_flow(
     db_block_name: str = "local",
     batch_size: int = 100,
     full_sync: bool = False,
-    full_sync_modified: bool = True,
+    skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ):
     logger = get_run_logger()
@@ -216,7 +219,7 @@ def main_flow(
 
     url_list = get_url_list(
         postgres_creds,
-        since=last_modified_date if not (full_sync or full_sync_modified) else None,
+        since=last_modified_date if not full_sync else None,
     )
 
     for i in range(0, len(url_list), batch_size):
@@ -228,6 +231,6 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_client_parameters=s3_client_parameters,
-            since=last_modified_date,
+            skip_unmodified=skip_unmodified,
             replace_url=replace_url,
         )
