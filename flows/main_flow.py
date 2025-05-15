@@ -1,11 +1,12 @@
 import os
+from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.extras
 from prefect import flow, get_run_logger, task
 from prefect.states import Failed, Completed
 from prefect.task_runners import ConcurrentTaskRunner
-from prefect_aws import AwsClientParameters, AwsCredentials
+from prefect_aws import AwsCredentials
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
 from prefect_sqlalchemy.credentials import DatabaseCredentials
 from botocore.config import Config
@@ -61,7 +62,7 @@ def create_and_upload_transcript_batch(
     postgres_credentials: DatabaseCredentials,
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
-    #s3_client_parameters: AwsClientParameters = AwsClientParameters(),
+    s3_base_url: str = None,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
@@ -100,10 +101,19 @@ def create_and_upload_transcript_batch(
                     Body=str(transcript).encode("utf-8"),
                 )
 
+                s3_domain = urlparse(
+                    s3_credentials.aws_client_parameters.endpoint_url
+                ).netloc
+                s3_endpoint = (
+                    s3_base_url
+                    if s3_base_url is not None
+                    else s3_credentials.aws_client_parameters.endpoint_url
+                )
+
                 output.append(
                     (
                         representation_id,
-                        f"{s3_credentials.endpoint_url}/{s3_bucket_name}/{s3_key}",
+                        f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}",
                         transcript.to_transcript(),
                     ),
                 )
@@ -164,7 +174,6 @@ def insert_schema_transcript_batch(
         host=postgres_credentials.host,
         port=postgres_credentials.port,
         database=postgres_credentials.database,
-        # connection_factory=LoggingConnection,
     )
     cur = conn.cursor()
 
@@ -197,7 +206,7 @@ def insert_schema_transcript_batch(
     on_completion=[save_last_run_config],
 )
 def main_flow(
-    s3_endpoint: str = "http://assets-int.hetarchief.be",
+    s3_base_url: str = "http://swarmget.do.viaa.be/alto/",
     s3_bucket_name: str = "hetarchief",
     s3_block_name: str = "arc-object-store",
     db_block_name: str = "local",
@@ -229,6 +238,7 @@ def main_flow(
             postgres_credentials=postgres_creds,
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
+            s3_base_url=s3_base_url,
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
         )
