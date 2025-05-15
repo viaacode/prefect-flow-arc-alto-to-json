@@ -5,7 +5,7 @@ import psycopg2.extras
 from prefect import flow, get_run_logger, task
 from prefect.states import Failed, Completed
 from prefect.task_runners import ConcurrentTaskRunner
-from prefect_aws import AwsClientParameters, AwsCredentials
+from prefect_aws import AwsCredentials
 from prefect_meemoo.config.last_run import get_last_run_config, save_last_run_config
 from prefect_sqlalchemy.credentials import DatabaseCredentials
 from botocore.config import Config
@@ -61,7 +61,8 @@ def create_and_upload_transcript_batch(
     postgres_credentials: DatabaseCredentials,
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
-    s3_client_parameters: AwsClientParameters = AwsClientParameters(),
+    s3_base_url: str = None,
+    s3_domain: str = None,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
@@ -70,9 +71,7 @@ def create_and_upload_transcript_batch(
     count = 0
     skipped = 0
     output = []
-    logger.info(
-        "Processing batch of %s representations.", len(batch)
-    )
+    logger.info("Processing batch of %s representations.", len(batch))
     for representation_id, url, updated_at in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
@@ -91,7 +90,7 @@ def create_and_upload_transcript_batch(
                         request_checksum_calculation="when_required",
                         response_checksum_validation="when_required",
                     ),
-                    **s3_client_parameters.get_params_override(),
+                    **s3_credentials.aws_client_parameters.get_params_override(),
                 )
 
                 s3_client.put_object(
@@ -100,10 +99,16 @@ def create_and_upload_transcript_batch(
                     Body=str(transcript).encode("utf-8"),
                 )
 
+                s3_endpoint = (
+                    s3_base_url
+                    if s3_base_url is not None
+                    else s3_credentials.aws_client_parameters.endpoint_url
+                )
+
                 output.append(
                     (
                         representation_id,
-                        f"{s3_client_parameters.endpoint_url}/{s3_bucket_name}/{s3_key}",
+                        f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}",
                         transcript.to_transcript(),
                     ),
                 )
@@ -164,7 +169,6 @@ def insert_schema_transcript_batch(
         host=postgres_credentials.host,
         port=postgres_credentials.port,
         database=postgres_credentials.database,
-        # connection_factory=LoggingConnection,
     )
     cur = conn.cursor()
 
@@ -197,7 +201,8 @@ def insert_schema_transcript_batch(
     on_completion=[save_last_run_config],
 )
 def main_flow(
-    s3_endpoint: str = "http://assets-int.hetarchief.be",
+    s3_base_url: str = "http://swarmget.do.viaa.be",
+    s3_domain: str = "s3-int.viaa.be",
     s3_bucket_name: str = "hetarchief",
     s3_block_name: str = "arc-object-store",
     db_block_name: str = "local",
@@ -211,7 +216,6 @@ def main_flow(
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
     s3_credentials = AwsCredentials.load(s3_block_name)
-    s3_client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
 
     # Figure out start time
     last_modified_date = get_last_run_config()
@@ -223,14 +227,15 @@ def main_flow(
     )
 
     for i in range(0, len(url_list), batch_size):
-        batch = url_list[i: i + batch_size]
+        batch = url_list[i : i + batch_size]
 
         create_and_upload_transcript_batch.submit(
             batch,
             postgres_credentials=postgres_creds,
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
-            s3_client_parameters=s3_client_parameters,
+            s3_base_url=s3_base_url,
+            s3_domain=s3_domain,
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
         )
