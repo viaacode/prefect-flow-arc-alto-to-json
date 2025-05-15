@@ -1,5 +1,4 @@
 import os
-from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.extras
@@ -63,6 +62,7 @@ def create_and_upload_transcript_batch(
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
     s3_base_url: str = None,
+    s3_domain: str = None,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
@@ -99,9 +99,6 @@ def create_and_upload_transcript_batch(
                     Body=str(transcript).encode("utf-8"),
                 )
 
-                s3_domain = urlparse(
-                    s3_credentials.aws_client_parameters.endpoint_url
-                ).netloc
                 s3_endpoint = (
                     s3_base_url
                     if s3_base_url is not None
@@ -205,6 +202,7 @@ def insert_schema_transcript_batch(
 )
 def main_flow(
     s3_base_url: str = "http://swarmget.do.viaa.be",
+    s3_domain: str = "s3-int.viaa.be",
     s3_bucket_name: str = "hetarchief",
     s3_block_name: str = "arc-object-store",
     db_block_name: str = "local",
@@ -237,6 +235,7 @@ def main_flow(
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
             s3_base_url=s3_base_url,
+            s3_domain=s3_domain,
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
         )
