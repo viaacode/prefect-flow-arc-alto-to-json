@@ -61,7 +61,7 @@ def create_and_upload_transcript_batch(
     postgres_credentials: DatabaseCredentials,
     s3_bucket_name: str,
     s3_credentials: AwsCredentials,
-    #s3_client_parameters: AwsClientParameters = AwsClientParameters(),
+    s3_client_parameters: AwsClientParameters = AwsClientParameters(),
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
 ) -> list[str, str, str]:
@@ -70,9 +70,7 @@ def create_and_upload_transcript_batch(
     count = 0
     skipped = 0
     output = []
-    logger.info(
-        "Processing batch of %s representations.", len(batch)
-    )
+    logger.info("Processing batch of %s representations.", len(batch))
     for representation_id, url, updated_at in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
@@ -91,8 +89,10 @@ def create_and_upload_transcript_batch(
                         request_checksum_calculation="when_required",
                         response_checksum_validation="when_required",
                     ),
-                    #**s3_client_parameters.get_params_override(),
+                    **s3_client_parameters.get_params_override(),
                 )
+
+                logger.info(s3_client)
 
                 s3_client.put_object(
                     Bucket=s3_bucket_name,
@@ -103,7 +103,7 @@ def create_and_upload_transcript_batch(
                 output.append(
                     (
                         representation_id,
-                        f"{s3_client._endpoint}/{s3_bucket_name}/{s3_key}",
+                        f"{s3_credentials.endpoint_url}/{s3_bucket_name}/{s3_key}",
                         transcript.to_transcript(),
                     ),
                 )
@@ -211,7 +211,7 @@ def main_flow(
     # Load credentials
     postgres_creds = DatabaseCredentials.load(db_block_name)
     s3_credentials = AwsCredentials.load(s3_block_name)
-    #s3_client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
+    # s3_client_parameters = AwsClientParameters(endpoint_url=s3_endpoint)
 
     # Figure out start time
     last_modified_date = get_last_run_config()
@@ -223,14 +223,16 @@ def main_flow(
     )
 
     for i in range(0, len(url_list), batch_size):
-        batch = url_list[i: i + batch_size]
+        batch = url_list[i : i + batch_size]
 
         create_and_upload_transcript_batch.submit(
             batch,
             postgres_credentials=postgres_creds,
             s3_bucket_name=s3_bucket_name,
             s3_credentials=s3_credentials,
-            #s3_client_parameters=s3_client_parameters,
+            s3_client_parameters=AwsClientParameters(
+                endpoint_url=s3_credentials.endpoint_url
+            ),
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
         )
