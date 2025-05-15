@@ -93,8 +93,6 @@ def create_and_upload_transcript_batch(
                     **s3_credentials.aws_client_parameters.get_params_override(),
                 )
 
-                logger.info(s3_client)
-
                 s3_client.put_object(
                     Bucket=s3_bucket_name,
                     Key=s3_key,
@@ -206,7 +204,7 @@ def insert_schema_transcript_batch(
     on_completion=[save_last_run_config],
 )
 def main_flow(
-    s3_base_url: str = "http://swarmget.do.viaa.be/alto/",
+    s3_base_url: str = "http://swarmget.do.viaa.be",
     s3_bucket_name: str = "hetarchief",
     s3_block_name: str = "arc-object-store",
     db_block_name: str = "local",
