@@ -2,6 +2,7 @@ import os
 
 import psycopg2
 import psycopg2.extras
+from pendulum.datetime import DateTime
 from prefect import flow, get_run_logger, task
 from prefect.states import Failed, Completed
 from prefect.task_runners import ConcurrentTaskRunner
@@ -207,6 +208,7 @@ def main_flow(
     s3_block_name: str = "arc-object-store",
     db_block_name: str = "local",
     batch_size: int = 100,
+    last_modified: DateTime = None,
     full_sync: bool = False,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
@@ -217,13 +219,11 @@ def main_flow(
     postgres_creds = DatabaseCredentials.load(db_block_name)
     s3_credentials = AwsCredentials.load(s3_block_name)
 
-    # Figure out start time
-    last_modified_date = get_last_run_config()
-    logger.info("Last run: %s", last_modified_date)
+    logger.info("Last run: %s", last_modified)
 
     url_list = get_url_list(
         postgres_creds,
-        since=last_modified_date if not full_sync else None,
+        since=str(last_modified) if not full_sync else None,
     )
 
     for i in range(0, len(url_list), batch_size):
