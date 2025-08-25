@@ -32,7 +32,7 @@ def get_url_list(
     JOIN graph.includes i ON i.file_id = f.id
     LEFT JOIN graph.schema_transcript_url t ON i.representation_id = t.representation_id
     WHERE f.ebucore_has_mime_type IN ('application/xml', 'text/plain') 
-    AND schema_name LIKE '%alto%'
+    AND schema_name LIKE '%%alto%%'
     """
 
     # Step 1: Establish a connection to the PostgreSQL database
@@ -48,7 +48,7 @@ def get_url_list(
 
     if since is not None:
         sql_query += " AND f.updated_at >= %(since)s"
-        cur.execute(sql_query, {"since": str(since)})
+        cur.execute(sql_query, {"since": since})
     else:
         cur.execute(sql_query)
     url_list = cur.fetchall()
