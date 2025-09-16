@@ -4,6 +4,8 @@ This prefect flow
 - transforms each AltoXML into a simplified JSON format and uploads the result to a S3 bucket,
 - stores the S3 link and the text content of each AltoXML file in a postgres table 
 
+## Overview
+
 This implementation consist of 
 - `flows/main_flow.py`: a Prefect Flow (Python) that orchestrates the necessary steps and 
 - `flows/convert_alto_to_simplified_json.py`: a couple of helper functions that a.o. tranfrom XML to the JSON output.
