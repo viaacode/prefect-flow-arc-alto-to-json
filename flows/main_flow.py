@@ -69,6 +69,12 @@ def create_and_upload_transcript_batch(
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
+    s3_endpoint = (
+        s3_base_url
+        if s3_base_url is not None
+        else s3_credentials.aws_client_parameters.endpoint_url
+    )
+
     count = 0
     skipped = 0
     output = []
@@ -100,12 +106,6 @@ def create_and_upload_transcript_batch(
                     Body=str(transcript).encode("utf-8"),
                 )
 
-                s3_endpoint = (
-                    s3_base_url
-                    if s3_base_url is not None
-                    else s3_credentials.aws_client_parameters.endpoint_url
-                )
-
                 output.append(
                     (
                         representation_id,
@@ -130,8 +130,9 @@ def create_and_upload_transcript_batch(
 
         except Exception:
             logger.exception(
-                "Failed to process Alto XML at %s to bucket %s with key %s.",
+                "Failed to process Alto XML at %s to endpoint %s and bucket %s with key %s.",
                 url,
+                s3_endpoint,
                 s3_bucket_name,
                 s3_key,
             )
