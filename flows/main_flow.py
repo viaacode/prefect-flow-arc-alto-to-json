@@ -82,15 +82,18 @@ def create_and_upload_transcript_batch(
     for representation_id, url, updated_at in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
-            # WORKAROUND: replace domain
+            # WORKAROUND for secure URLs: replace domain of AltoXML URL
             if replace_url[0] is not None and replace_url[1] is not None:
                 url = url.replace(replace_url[0], replace_url[1])
 
+            # Optionally skip files that haven't been modified
             if (not skip_unmodified) or is_alto_modified(url, updated_at):
+                # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
                 )
 
+                # Get S3 client
                 s3_client = s3_credentials.get_boto3_session().client(
                     "s3",
                     config=Config(
@@ -100,12 +103,14 @@ def create_and_upload_transcript_batch(
                     **s3_credentials.aws_client_parameters.get_params_override(),
                 )
 
+                # Upload JSON file to S3
                 s3_client.put_object(
                     Bucket=s3_bucket_name,
                     Key=s3_key,
                     Body=str(transcript).encode("utf-8"),
                 )
 
+                # Append the JSON S3 URL and transcript to what needs to be stored in the database
                 output.append(
                     (
                         representation_id,
@@ -138,6 +143,7 @@ def create_and_upload_transcript_batch(
             )
 
     try:
+        # Upsert the batch into database table
         insert_schema_transcript_batch(
             output, postgres_credentials=postgres_credentials
         )
@@ -222,11 +228,13 @@ def main_flow(
 
     logger.info("Last run: %s", last_modified)
 
+    # Get all AltoXML URLs from database
     url_list = get_url_list(
         postgres_creds,
         since=last_modified if not full_sync else None,
     )
 
+    # Process AltoXML URLs in batches
     for i in range(0, len(url_list), batch_size):
         batch = url_list[i : i + batch_size]
 
