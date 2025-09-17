@@ -157,13 +157,13 @@ def create_and_upload_transcript_batch(
 
         total = len(batch)
         succeeded = len(output)
-        if (succeeded + skipped) < total:
+        if (succeeded + skipped + empty) < total:
             failed = total - succeeded
             return Failed(
-                message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified)."
+                message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
             )
         return Completed(
-            message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified)."
+            message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified; {empty} empty transcripts)."
         )
     except Exception as e:
         logger.exception("Failed to insert batch.")
