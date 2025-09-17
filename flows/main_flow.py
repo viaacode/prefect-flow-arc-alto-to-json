@@ -77,6 +77,7 @@ def create_and_upload_transcript_batch(
 
     count = 0
     skipped = 0
+    empty = 0
     output = []
     logger.info("Processing batch of %s representations.", len(batch))
     for representation_id, url, updated_at in batch:
@@ -92,32 +93,37 @@ def create_and_upload_transcript_batch(
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
                 )
+                transcript_text = transcript.to_transcript()
+                # Only process non empty transcripts
+                if transcript_text:
+                    # Get S3 client
+                    s3_client = s3_credentials.get_boto3_session().client(
+                        "s3",
+                        config=Config(
+                            request_checksum_calculation="when_required",
+                            response_checksum_validation="when_required",
+                        ),
+                        **s3_credentials.aws_client_parameters.get_params_override(),
+                    )
 
-                # Get S3 client
-                s3_client = s3_credentials.get_boto3_session().client(
-                    "s3",
-                    config=Config(
-                        request_checksum_calculation="when_required",
-                        response_checksum_validation="when_required",
-                    ),
-                    **s3_credentials.aws_client_parameters.get_params_override(),
-                )
+                    # Upload JSON file to S3
+                    s3_client.put_object(
+                        Bucket=s3_bucket_name,
+                        Key=s3_key,
+                        Body=str(transcript).encode("utf-8"),
+                    )
 
-                # Upload JSON file to S3
-                s3_client.put_object(
-                    Bucket=s3_bucket_name,
-                    Key=s3_key,
-                    Body=str(transcript).encode("utf-8"),
-                )
-
-                # Append the JSON S3 URL and transcript to what needs to be stored in the database
-                output.append(
-                    (
-                        representation_id,
-                        f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}",
-                        transcript.to_transcript(),
-                    ),
-                )
+                    # Append the JSON S3 URL and transcript to what needs to be stored in the database
+                    output.append(
+                        (
+                            representation_id,
+                            f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}",
+                            transcript_text,
+                        ),
+                    )
+                else:
+                    empty +=1
+                    logger.warning("Empty transcript for %s of representation %s skipped.", url, representation_id)
             else:
                 skipped += 1
 
@@ -125,12 +131,13 @@ def create_and_upload_transcript_batch(
             count += 1
             if count % (len(batch) / 10) == 0:
                 logger.info(
-                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s (skipped unmodified: %s).",
+                    "S3 Upload %s%% done. Last representation %s had key %s to bucket %s (skipped unmodified: %s; empty: %s).",
                     round((len(output) / len(batch)) * 100),
                     representation_id,
                     s3_key,
                     s3_bucket_name,
                     skipped,
+                    empty
                 )
 
         except Exception:
