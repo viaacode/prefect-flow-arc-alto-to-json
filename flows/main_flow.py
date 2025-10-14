@@ -163,31 +163,23 @@ def create_and_upload_transcript_batch(
 
         total = len(batch)
         succeeded = len(output)
-        if (succeeded + skipped + empty) < total:
+        if failed_representations:
             failed = total - succeeded - skipped - empty
+            create_table_artifact(
+                key="failed-alto-representations",
+                table=failed_representations,
+                description="List of representations that failed to be processed in this batch.",
+            )
+            logger.error(
+                f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
+            )
             if fail_tasks:
-                logger.error(
-                    f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
-                )
-                create_table_artifact(
-                    key="failed-alto-representations",
-                    table=failed_representations,
-                    description="List of representations that failed to be processed in this batch.",
-                )
                 return Failed(
                     message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
                 )
             else:
-                logger.error(
-                    f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
-                )
-                create_table_artifact(
-                    key="failed-alto-representations",
-                    table=failed_representations,
-                    description="List of representations that failed to be processed in this batch.",
-                )
                 return Completed(
-                    message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                    message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
                 )
         return Completed(
             message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified; {empty} empty transcripts)."
