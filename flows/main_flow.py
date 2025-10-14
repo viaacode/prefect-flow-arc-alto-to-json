@@ -4,6 +4,7 @@ import psycopg2
 import psycopg2.extras
 from pendulum.datetime import DateTime
 from prefect import flow, get_run_logger, task
+from prefect.artifacts import create_table_artifact
 from prefect.states import Failed, Completed
 from prefect.task_runners import ConcurrentTaskRunner
 from prefect_aws import AwsCredentials
@@ -43,13 +44,14 @@ def get_url_list(
         port=postgres_credentials.port,
         database=postgres_credentials.database,
     )
-    logger.info(f"Executing query on {postgres_credentials.host}: {sql_query}")
     cur = conn.cursor()
 
     if since is not None:
         sql_query += " AND f.updated_at >= %(since)s"
         cur.execute(sql_query, {"since": since})
+        logger.info(f"Executing query on {postgres_credentials.host}: {sql_query}, since {since}")
     else:
+        logger.info(f"Executing query on {postgres_credentials.host}: {sql_query}")
         cur.execute(sql_query)
     url_list = cur.fetchall()
     logger.info(f"Retrieved {len(url_list)} URLs.")
@@ -66,6 +68,7 @@ def create_and_upload_transcript_batch(
     s3_domain: str = None,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
+    fail_tasks: bool = True,
 ) -> list[str, str, str]:
     logger = get_run_logger()
 
@@ -80,6 +83,7 @@ def create_and_upload_transcript_batch(
     empty = 0
     output = []
     logger.info("Processing batch of %s representations.", len(batch))
+    failed_representations = []
     for representation_id, url, updated_at in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
@@ -141,6 +145,7 @@ def create_and_upload_transcript_batch(
                 )
 
         except Exception:
+            failed_representations.append({ "representation": url, "s3_key": s3_key })
             logger.exception(
                 "Failed to process Alto XML at %s to endpoint %s and bucket %s with key %s.",
                 url,
@@ -158,10 +163,31 @@ def create_and_upload_transcript_batch(
         total = len(batch)
         succeeded = len(output)
         if (succeeded + skipped + empty) < total:
-            failed = total - succeeded
-            return Failed(
-                message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
-            )
+            failed = total - succeeded - skipped - empty
+            if fail_tasks:
+                logger.error(
+                    f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                )
+                create_table_artifact(
+                    key="failed-alto-representations",
+                    table=failed_representations,
+                    description="List of representations that failed to be processed in this batch.",
+                )
+                return Failed(
+                    message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                )
+            else:
+                logger.error(
+                    f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                )
+                create_table_artifact(
+                    key="failed-alto-representations",
+                    table=failed_representations,
+                    description="List of representations that failed to be processed in this batch.",
+                )
+                return Completed(
+                    message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                )
         return Completed(
             message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified; {empty} empty transcripts)."
         )
@@ -226,6 +252,7 @@ def main_flow(
     full_sync: bool = False,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
+    fail_tasks: bool = True,
 ):
     logger = get_run_logger()
 
@@ -254,4 +281,5 @@ def main_flow(
             s3_domain=s3_domain,
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
+            fail_tasks=fail_tasks,
         )
