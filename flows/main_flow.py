@@ -127,6 +127,7 @@ def create_and_upload_transcript_batch(
                     )
                 else:
                     empty +=1
+                    failed_representations.append({ "representation": url, "s3_key": s3_key, "type": "empty" })
                     logger.warning("Empty transcript for %s of representation %s skipped.", url, representation_id)
             else:
                 skipped += 1
@@ -145,7 +146,7 @@ def create_and_upload_transcript_batch(
                 )
 
         except Exception:
-            failed_representations.append({ "representation": url, "s3_key": s3_key })
+            failed_representations.append({ "representation": url, "s3_key": s3_key, "type": "failed" })
             logger.exception(
                 "Failed to process Alto XML at %s to endpoint %s and bucket %s with key %s.",
                 url,
