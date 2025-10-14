@@ -166,7 +166,7 @@ def create_and_upload_transcript_batch(
             failed = total - succeeded - skipped - empty
             if fail_tasks:
                 logger.error(
-                    f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                    f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
                 )
                 create_table_artifact(
                     key="failed-alto-representations",
@@ -174,7 +174,7 @@ def create_and_upload_transcript_batch(
                     description="List of representations that failed to be processed in this batch.",
                 )
                 return Failed(
-                    message=f"Batch failed: {failed}/{total} items not processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+                    message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
                 )
             else:
                 logger.error(
