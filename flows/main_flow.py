@@ -223,6 +223,7 @@ def insert_schema_transcript_batch(
             page_size=100,
         )
     except psycopg2.errors.UniqueViolation:
+        conn.rollback()
         logger.exception("Inserting batch on 'representation_id' failed; trying again with 'schema_transcript_url'")
         # Try with different query
         insert_query = """
