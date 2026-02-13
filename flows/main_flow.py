@@ -208,19 +208,39 @@ def insert_schema_transcript_batch(
 
     # insert url into table
     logger.info("Inserting %s URLs into 'graph.schema_transcript_url'.", len(batch))
-    insert_query = """
+    try:
+        insert_query = """
         INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url, schema_transcript) 
         VALUES %s 
         ON CONFLICT(representation_id) 
         DO UPDATE SET schema_transcript_url = EXCLUDED.schema_transcript_url, schema_transcript = EXCLUDED.schema_transcript;
         """
-    psycopg2.extras.execute_values(
-        cur,
-        insert_query,
-        batch,
-        template=None,
-        page_size=100,
-    )
+        psycopg2.extras.execute_values(
+            cur,
+            insert_query,
+            batch,
+            template=None,
+            page_size=100,
+        )
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        logger.exception("Inserting batch on 'representation_id' failed; trying again with 'schema_transcript_url'")
+        # Try with different query
+        insert_query = """
+        INSERT INTO graph.schema_transcript_url (representation_id, schema_transcript_url, schema_transcript) 
+        VALUES %s 
+        ON CONFLICT(schema_transcript_url) 
+        DO UPDATE SET representation_id = EXCLUDED.representation_id, schema_transcript = EXCLUDED.schema_transcript;
+        """
+        psycopg2.extras.execute_values(
+            cur,
+            insert_query,
+            batch,
+            template=None,
+            page_size=100,
+        )
+
+    
     conn.commit()
     logger.info("URLs inserted into 'graph.schema_transcript_url'.")
 
