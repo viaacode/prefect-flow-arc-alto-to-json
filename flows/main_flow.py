@@ -28,7 +28,7 @@ def get_url_list(
     logger = get_run_logger()
 
     sql_query = """
-    SELECT i.representation_id, f.premis_stored_at, t.updated_at
+    SELECT i.representation_id, f.premis_stored_at
     FROM graph.file f
     JOIN graph.includes i ON i.file_id = f.id
     LEFT JOIN graph.schema_transcript_url t ON i.representation_id = t.representation_id
@@ -84,7 +84,7 @@ def create_and_upload_transcript_batch(
     output = []
     logger.info("Processing batch of %s representations.", len(batch))
     failed_representations = []
-    for representation_id, url, updated_at in batch:
+    for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         try:
             # WORKAROUND for secure URLs: replace domain of AltoXML URL
@@ -92,7 +92,7 @@ def create_and_upload_transcript_batch(
                 url = url.replace(replace_url[0], replace_url[1])
 
             # Optionally skip files that haven't been modified
-            if (not skip_unmodified) or is_alto_modified(url, updated_at):
+            if (not skip_unmodified) or is_alto_modified(url):
                 # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
