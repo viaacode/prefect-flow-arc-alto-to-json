@@ -117,7 +117,7 @@ def create_and_upload_transcript_batch(
                 url = url.replace(replace_url[0], replace_url[1])
             
             # Optionally skip files that haven't been modified
-            if (not skip_unmodified) or not s3_file_exists(url, s3_key) or is_alto_modified(s3_file_url, since=last_modified):
+            if (not skip_unmodified) or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(url, since=last_modified):
                 # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
