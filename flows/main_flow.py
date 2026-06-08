@@ -108,6 +108,7 @@ def create_and_upload_transcript_batch(
     output = []
     logger.info("Processing batch of %s representations.", len(batch))
     failed_representations = []
+    progress_interval = max(1, (len(batch) + 9) // 10)
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
         s3_file_url = f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}"
@@ -149,10 +150,10 @@ def create_and_upload_transcript_batch(
 
             # Print progress in 10 updates
             count += 1
-            if count % (len(batch) / 10) == 0:
+            if count % progress_interval == 0 or count == len(batch):
                 logger.info(
                     "S3 Upload %s%% done. Last representation %s had key %s to bucket %s (skipped unmodified: %s; empty: %s).",
-                    round((len(output) / len(batch)) * 100),
+                    round((count / len(batch)) * 100),
                     representation_id,
                     s3_key,
                     s3_bucket_name,
