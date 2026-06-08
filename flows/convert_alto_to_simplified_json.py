@@ -224,7 +224,10 @@ def is_alto_modified(url: str, since: datetime.datetime = None) -> bool:
             logger.error(f"Failed to fetch headers for URL: {url}")
             return False
 
-    url_time = response.headers["last-modified"]
+    url_time = response.headers.get("last-modified")
+    if url_time is None:
+        logger.warning(f"No last-modified header found for URL: {url}")
+        return False
     url_date = parsedate(url_time)
 
     return url_date > since
