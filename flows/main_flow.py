@@ -67,6 +67,7 @@ def create_and_upload_transcript_batch(
     s3_credentials: AwsCredentials,
     s3_base_url: str = None,
     s3_domain: str = None,
+    last_modified: DateTime = None,
     skip_unmodified: bool = True,
     replace_url: tuple[str, str] = ("", ""),
     fail_tasks: bool = True,
@@ -116,7 +117,7 @@ def create_and_upload_transcript_batch(
                 url = url.replace(replace_url[0], replace_url[1])
             
             # Optionally skip files that haven't been modified
-            if (not skip_unmodified) or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(s3_file_url):
+            if (not skip_unmodified) or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(s3_file_url, since=last_modified):
                 # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
@@ -201,6 +202,8 @@ def create_and_upload_transcript_batch(
     except Exception as e:
         logger.exception("Failed to insert batch.")
         raise e
+    finally:
+        s3_client.close()
 
 
 # @task
@@ -286,6 +289,7 @@ def main_flow(
             s3_credentials=s3_credentials,
             s3_base_url=s3_base_url,
             s3_domain=s3_domain,
+            last_modified=last_modified if not full_sync else None,
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
             fail_tasks=fail_tasks,
