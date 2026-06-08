@@ -8,6 +8,7 @@ from prefect.artifacts import create_table_artifact
 from prefect.states import Failed, Completed
 from prefect.task_runners import ConcurrentTaskRunner
 from prefect_aws import AwsCredentials
+from botocore.exceptions import ClientError
 from prefect_meemoo.config.last_run import save_last_run_config
 from prefect_sqlalchemy.credentials import DatabaseCredentials
 from botocore.config import Config
@@ -78,6 +79,28 @@ def create_and_upload_transcript_batch(
         else s3_credentials.aws_client_parameters.endpoint_url
     )
 
+    def get_s3_client():
+        return s3_credentials.get_boto3_session().client(
+            "s3",
+            config=Config(
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+                retries={"mode": "standard", "max_attempts": 3},
+            ),
+            **s3_credentials.aws_client_parameters.get_params_override(),
+        )
+
+    s3_client = get_s3_client()
+
+    def s3_file_exists(bucket_name: str, key: str) -> bool:
+        try:
+            s3_client.head_object(Bucket=bucket_name, Key=key)
+            return True
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+                return False
+            raise
+
     count = 0
     skipped = 0
     empty = 0
@@ -86,13 +109,14 @@ def create_and_upload_transcript_batch(
     failed_representations = []
     for representation_id, url in batch:
         s3_key = f"{os.path.basename(url)}.json"
+        s3_file_url = f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}"
         try:
             # WORKAROUND for secure URLs: replace domain of AltoXML URL
             if replace_url[0] is not None and replace_url[1] is not None:
                 url = url.replace(replace_url[0], replace_url[1])
-
+            
             # Optionally skip files that haven't been modified
-            if (not skip_unmodified) or is_alto_modified(url):
+            if (not skip_unmodified) or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(s3_file_url):
                 # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
@@ -100,16 +124,6 @@ def create_and_upload_transcript_batch(
                 transcript_text = transcript.to_transcript()
                 # Only process non empty transcripts
                 if transcript_text:
-                    # Get S3 client
-                    s3_client = s3_credentials.get_boto3_session().client(
-                        "s3",
-                        config=Config(
-                            request_checksum_calculation="when_required",
-                            response_checksum_validation="when_required",
-                        ),
-                        **s3_credentials.aws_client_parameters.get_params_override(),
-                    )
-
                     # Upload JSON file to S3
                     s3_client.put_object(
                         Bucket=s3_bucket_name,
@@ -121,7 +135,7 @@ def create_and_upload_transcript_batch(
                     output.append(
                         (
                             representation_id,
-                            f"{s3_endpoint}/{s3_bucket_name}/{s3_key}?domain={s3_domain}",
+                            s3_file_url,
                             transcript_text,
                         ),
                     )
