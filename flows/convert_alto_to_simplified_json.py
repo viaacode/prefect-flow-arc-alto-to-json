@@ -7,6 +7,7 @@ import datetime
 from dateutil.parser import parse as parsedate
 
 from lxml import etree as ET
+from prefect import get_run_logger
 from urllib.parse import urlparse, urlunparse
 
 
@@ -209,17 +210,27 @@ def convert_alto_xml_url_to_simplified_json(url: str) -> SimplifiedAlto:
     return extract_text_lines_from_alto(alto_tree)
 
 
-def is_alto_modified(url: str):
-    response = requests.head(url)
-    if response.ok:
-        return False  # If we can access the URL, assume it's not modified
-    # TEMP FIX: rewrite URL without third path component and try again
-    url = rewrite_url(url)
+def is_alto_modified(url: str, since: datetime.datetime = None) -> bool:
+    logger = get_run_logger()
+    if since is None:
+        return False
+    
     response = requests.head(url)
     if not response.ok:
-        return False  # If we can access the URL, assume it's not modified
-    return True # If we can't access the URL, assume it's modified
+        # TEMP FIX: rewrite URL without third path component and try again
+        url = rewrite_url(url)
+        response = requests.head(url)
+        if not response.ok:
+            logger.error(f"Failed to fetch headers for URL: {url}")
+            return False
 
+    url_time = response.headers.get("last-modified")
+    if url_time is None:
+        logger.warning(f"No last-modified header found for URL: {url}")
+        return False
+    url_date = parsedate(url_time)
+
+    return url_date > since
 
 if __name__ == "__main__":
     url = sys.argv[1]
