@@ -86,7 +86,7 @@ def create_and_upload_transcript_batch(
             config=Config(
                 request_checksum_calculation="when_required",
                 response_checksum_validation="when_required",
-                retries={"mode": "standard", "max_attempts": 3},
+                retries={"mode": "adaptive", "total_max_attempts": 6},
             ),
             **s3_credentials.aws_client_parameters.get_params_override(),
         )
