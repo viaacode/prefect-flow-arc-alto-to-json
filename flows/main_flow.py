@@ -59,6 +59,35 @@ def get_url_list(
     return url_list
 
 
+def get_s3_client(s3_credentials: AwsCredentials):
+    return s3_credentials.get_boto3_session().client(
+        "s3",
+        config=Config(
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+            retries={"mode": "adaptive", "total_max_attempts": 6},
+        ),
+        **s3_credentials.aws_client_parameters.get_params_override(),
+    )
+
+
+@task
+def check_s3_bucket_reachable(
+    s3_bucket_name: str,
+    s3_credentials: AwsCredentials,
+) -> None:
+    logger = get_run_logger()
+    s3_client = get_s3_client(s3_credentials)
+    try:
+        s3_client.head_bucket(Bucket=s3_bucket_name)
+        logger.info("S3 bucket '%s' is reachable.", s3_bucket_name)
+    except ClientError:
+        logger.exception("S3 bucket '%s' is not reachable.", s3_bucket_name)
+        raise
+    finally:
+        s3_client.close()
+
+
 @task(tags=["etl-alto"])
 def create_and_upload_transcript_batch(
     batch: list[str, str],
@@ -80,18 +109,7 @@ def create_and_upload_transcript_batch(
         else s3_credentials.aws_client_parameters.endpoint_url
     )
 
-    def get_s3_client():
-        return s3_credentials.get_boto3_session().client(
-            "s3",
-            config=Config(
-                request_checksum_calculation="when_required",
-                response_checksum_validation="when_required",
-                retries={"mode": "adaptive", "total_max_attempts": 6},
-            ),
-            **s3_credentials.aws_client_parameters.get_params_override(),
-        )
-
-    s3_client = get_s3_client()
+    s3_client = get_s3_client(s3_credentials)
 
     def s3_file_exists(bucket_name: str, key: str) -> bool:
         try:
@@ -293,12 +311,15 @@ def main_flow(
 
     logger.info("Last run: %s", last_modified)
 
+    # Test that the AltoXML S3 bucket can be reached before doing any work
+    check_s3_bucket_reachable(s3_bucket_name, s3_credentials)
+
     # Get all AltoXML URLs from database
     url_list = get_url_list(
         postgres_creds,
         since=last_modified if not full_sync else None,
     )
-
+    
     # Process AltoXML URLs in batches
     for i in range(0, len(url_list), batch_size):
         batch = url_list[i : i + batch_size]
