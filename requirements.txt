@@ -1,4 +1,4 @@
-psycopg2-binary==2.9.5
+psycopg2-binary
 prefect-meemoo[config]==1.0.0
 prefect-sqlalchemy
 prefect==2.20.16

@@ -120,6 +120,28 @@ def create_and_upload_transcript_batch(
                 return False
             raise
 
+    def get_existing_transcript_urls(urls: list[str]) -> set[str]:
+        conn = psycopg2.connect(
+            user=postgres_credentials.username,
+            password=postgres_credentials.password.get_secret_value(),
+            host=postgres_credentials.host,
+            port=postgres_credentials.port,
+            database=postgres_credentials.database,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT schema_transcript_url FROM graph.schema_transcript_url WHERE schema_transcript_url = ANY(%s)",
+                    (urls,),
+                )
+                return {row[0] for row in cur.fetchall()}
+        finally:
+            conn.close()
+
+    existing_transcript_urls = get_existing_transcript_urls(
+        [f"{s3_endpoint}/{s3_bucket_name}/{os.path.basename(url)}.json?domain={s3_domain}" for _, url in batch]
+    )
+
     count = 0
     skipped = 0
     empty = 0
@@ -135,8 +157,8 @@ def create_and_upload_transcript_batch(
             if replace_url[0] is not None and replace_url[1] is not None:
                 url = url.replace(replace_url[0], replace_url[1])
             
-            # Optionally skip files that haven't been modified
-            if (not skip_unmodified) or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(url, since=last_modified):
+            # Optionally skip files that haven't been modified (but always process those missing from the database)
+            if (not skip_unmodified) or s3_file_url not in existing_transcript_urls or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(url, since=last_modified):
                 # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
