@@ -120,7 +120,7 @@ def create_and_upload_transcript_batch(
                 return False
             raise
 
-    def get_existing_transcript_urls(urls: list[str]) -> set[str]:
+    def get_existing_transcript_urls(urls: list[str]) -> dict[str, str]:
         conn = psycopg2.connect(
             user=postgres_credentials.username,
             password=postgres_credentials.password.get_secret_value(),
@@ -131,10 +131,10 @@ def create_and_upload_transcript_batch(
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT schema_transcript_url FROM graph.schema_transcript_url WHERE schema_transcript_url = ANY(%s)",
+                    "SELECT representation_id, schema_transcript_url FROM graph.schema_transcript_url WHERE schema_transcript_url = ANY(%s)",
                     (urls,),
                 )
-                return {row[0] for row in cur.fetchall()}
+                return {url: representation_id for representation_id, url in cur.fetchall()}
         finally:
             conn.close()
 
@@ -146,6 +146,7 @@ def create_and_upload_transcript_batch(
     skipped = 0
     empty = 0
     output = []
+    relinked = []
     logger.info("Processing batch of %s representations.", len(batch))
     failed_representations = []
     progress_interval = max(1, (len(batch) + 9) // 10)
@@ -157,8 +158,9 @@ def create_and_upload_transcript_batch(
             if replace_url[0] is not None and replace_url[1] is not None:
                 url = url.replace(replace_url[0], replace_url[1])
             
+            existing_representation_id = existing_transcript_urls.get(s3_file_url)
             # Optionally skip files that haven't been modified (but always process those missing from the database)
-            if (not skip_unmodified) or s3_file_url not in existing_transcript_urls or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(url, since=last_modified):
+            if (not skip_unmodified) or existing_representation_id is None or not s3_file_exists(s3_bucket_name, s3_key) or is_alto_modified(url, since=last_modified):
                 # Get the JSON 
                 transcript: SimplifiedAlto = convert_alto_xml_url_to_simplified_json(
                     url
@@ -185,6 +187,9 @@ def create_and_upload_transcript_batch(
                     empty +=1
                     failed_representations.append({ "representation": url, "s3_key": s3_key, "type": "empty" })
                     logger.warning("Empty transcript for %s of representation %s skipped.", url, representation_id)
+            elif existing_representation_id != representation_id:
+                # Unmodified, but linked to the wrong representation: only fix the link in the database
+                relinked.append((representation_id, s3_file_url))
             else:
                 skipped += 1
 
@@ -212,6 +217,11 @@ def create_and_upload_transcript_batch(
             )
 
     try:
+        # Fix links of unmodified transcripts that point to the wrong representation
+        relink_schema_transcript_batch(
+            relinked, postgres_credentials=postgres_credentials
+        )
+
         # Upsert the batch into database table
         insert_schema_transcript_batch(
             output, postgres_credentials=postgres_credentials
@@ -220,31 +230,61 @@ def create_and_upload_transcript_batch(
         total = len(batch)
         succeeded = len(output)
         if failed_representations:
-            failed = total - succeeded - skipped - empty
-            create_table_artifact(
-                key="failed-alto-representations",
-                table=failed_representations,
-                description="List of representations that failed to be processed in this batch.",
-            )
+            failed = total - succeeded - skipped - empty - len(relinked)
             logger.error(
-                f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
+                f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {len(relinked)} relinked; {empty} empty transcripts)."
             )
             if fail_tasks:
                 return Failed(
-                    message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
+                    message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {len(relinked)} relinked; {empty} empty transcripts).",
+                    data=failed_representations,
                 )
             else:
                 return Completed(
-                    message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {empty} empty transcripts)."
+                    message=f"Batch failed: {failed}/{total} items not processed due to error ({skipped} skipped unmodified; {len(relinked)} relinked; {empty} empty transcripts).",
+                    data=failed_representations,
                 )
         return Completed(
-            message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified; {empty} empty transcripts)."
+            message=f"Batch succeeded: {succeeded}/{total} items processed ({skipped} skipped unmodified; {len(relinked)} relinked; {empty} empty transcripts).",
+            data=failed_representations,
         )
     except Exception as e:
         logger.exception("Failed to insert batch.")
         raise e
     finally:
         s3_client.close()
+
+
+def relink_schema_transcript_batch(
+    batch: list[tuple[str, str]],
+    postgres_credentials: DatabaseCredentials,
+):
+    if not batch:
+        return
+    logger = get_run_logger()
+
+    conn = psycopg2.connect(
+        user=postgres_credentials.username,
+        password=postgres_credentials.password.get_secret_value(),
+        host=postgres_credentials.host,
+        port=postgres_credentials.port,
+        database=postgres_credentials.database,
+    )
+    logger.info("Relinking %s URLs to their correct representation in 'graph.schema_transcript_url'.", len(batch))
+    try:
+        with conn, conn.cursor() as cur:
+            for representation_id, url in batch:
+                # A representation has only one transcript, so drop a stale row of the target representation first
+                cur.execute(
+                    "DELETE FROM graph.schema_transcript_url WHERE representation_id = %s AND schema_transcript_url <> %s",
+                    (representation_id, url),
+                )
+                cur.execute(
+                    "UPDATE graph.schema_transcript_url SET representation_id = %s WHERE schema_transcript_url = %s",
+                    (representation_id, url),
+                )
+    finally:
+        conn.close()
 
 
 # @task
@@ -343,10 +383,11 @@ def main_flow(
     )
     
     # Process AltoXML URLs in batches
+    futures = []
     for i in range(0, len(url_list), batch_size):
         batch = url_list[i : i + batch_size]
 
-        create_and_upload_transcript_batch.submit(
+        futures.append(create_and_upload_transcript_batch.submit(
             batch,
             postgres_credentials=postgres_creds,
             s3_bucket_name=s3_bucket_name,
@@ -357,4 +398,17 @@ def main_flow(
             skip_unmodified=skip_unmodified,
             replace_url=replace_url,
             fail_tasks=fail_tasks,
+        ))
+
+    # Collect the failed representations of all batches into one artifact
+    failed_representations = []
+    for future in futures:
+        result = future.result(raise_on_failure=False)
+        if isinstance(result, list):
+            failed_representations.extend(result)
+    if failed_representations:
+        create_table_artifact(
+            key="failed-alto-representations",
+            table=failed_representations,
+            description="List of representations that failed to be processed in this flow run.",
         )
